@@ -1,0 +1,180 @@
+* {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at center, #1f1b26 0%, #120e17 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', Courier, monospace;
+      color: #f7eed8;
+      padding: 12px;
+      overflow-x: hidden;
+    }
+    #game-container {
+      position: relative;
+      border: 4px solid #6b5247;
+      border-radius: 14px;
+      box-shadow: 0 14px 45px rgba(25, 14, 30, 0.85), inset 0 0 18px rgba(255, 230, 190, 0.08), 0 0 70px rgba(255, 176, 100, 0.14);
+      background: #181119;
+      overflow: hidden;
+      max-width: 100%;
+    }
+
+
+    #landing {
+      position: absolute; inset: 0; z-index: 100; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      background: radial-gradient(circle at 50% 35%, #3a2230 0%, #1b1220 60%, #0d0911 100%);
+    }
+    #landing.hide { display: none; }
+    #landing .ball {
+      width: 96px; height: 96px; border-radius: 50%; border: 6px solid #1b1220; margin-bottom: 22px;
+      background: linear-gradient(to bottom, #e04a3c 0 46%, #1b1220 46% 54%, #f5ebd8 54% 100%);
+      position: relative; box-shadow: 0 0 0 4px #f5ebd8, 0 8px 30px rgba(224,74,60,0.45);
+      animation: bob 2.4s ease-in-out infinite;
+    }
+    #landing .ball::after {
+      content: ""; position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+      transform: translate(-50%, -50%); border-radius: 50%; background: #f5ebd8; border: 5px solid #1b1220;
+    }
+    @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    #landing h1 {
+      margin: 0; font-size: clamp(34px, 9vw, 68px); letter-spacing: 6px; color: #e8503f;
+      text-shadow: 3px 3px 0 #f5ebd8, 6px 6px 0 #1b1220;
+    }
+    #landing p { margin: 14px 0 30px; color: #c9b9bf; font-size: 14px; letter-spacing: 2px; }
+    #start-btn, #continue-btn {
+      font-family: inherit; font-size: 20px; font-weight: bold; letter-spacing: 3px;
+      padding: 14px 40px; cursor: pointer; color: #fff; background: #d85848;
+      border: 4px solid #f5ebd8; border-radius: 10px; box-shadow: 0 6px 0 #8a2f24;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    #continue-btn {
+      background: #2e8b57; box-shadow: 0 6px 0 #1b5837;
+    }
+    #continue-btn:hover, #continue-btn:focus { background: #3cb371; outline: none; }
+    #continue-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #1b5837; }
+    #start-btn:hover, #start-btn:focus { background: #ee6b5a; outline: none; }
+    #start-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #8a2f24; }
+    @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.15); } }
+    #landing small { margin-top: 18px; color: #8f7f87; font-size: 12px; }
+    #gameover-overlay {
+      position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+      background: rgba(10, 6, 14, 0.72); z-index: 50;
+    }
+    #gameover-overlay.show { display: flex; }
+    #gameover-box {
+      background: #f5ebd8; color: #30222a; border: 5px solid #5a4356; border-radius: 12px;
+      padding: 26px 34px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+      max-width: 88%;
+    }
+    #gameover-box h2 { margin: 0 0 8px; font-size: 32px; letter-spacing: 3px; color: #d85848; }
+    #gameover-box p { margin: 0 0 18px; font-size: 16px; font-weight: bold; }
+    #playagain-btn {
+      font-family: inherit; font-size: 17px; font-weight: bold; letter-spacing: 1px;
+      padding: 10px 26px; cursor: pointer; color: #fff; background: #d85848;
+      border: 3px solid #5a4356; border-radius: 8px;
+    }
+    #playagain-btn:hover, #playagain-btn:focus { background: #ee6b5a; outline: none; }
+    #gameover-box small { display: block; margin-top: 10px; color: #73646c; font-size: 12px; }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      max-width: 100%;
+      height: auto;
+    }
+    .instructions {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #a89aa0;
+      text-align: center;
+      line-height: 1.6;
+      letter-spacing: 0.5px;
+    }
+    .instructions span {
+      color: #ffcc66;
+      font-weight: bold;
+    }
+
+    #mobile-controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 720px;
+      margin-top: 14px;
+      user-select: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    #mobile-controls.hidden {
+      display: none !important;
+    }
+    .dpad-cluster {
+      position: relative;
+      width: 154px;
+      height: 154px;
+    }
+    .action-cluster {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .touch-btn {
+      position: absolute;
+      background: rgba(56, 44, 52, 0.82);
+      border: 2px solid #9e7f72;
+      color: #fdf5ea;
+      font-weight: bold;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      box-shadow: 0 4px 10px rgba(16, 9, 20, 0.6);
+      cursor: pointer;
+      touch-action: none;
+      transition: all 0.08s;
+    }
+    .touch-btn:active, .touch-btn.active {
+      background: #ffc97a;
+      color: #2a1610;
+      border-color: #ffe6aa;
+      transform: scale(0.94);
+    }
+    #btn-up    { top: 4px;   left: 52px; width: 50px; height: 48px; }
+    #btn-down  { bottom: 4px; left: 52px; width: 50px; height: 48px; }
+    #btn-left  { top: 52px;  left: 4px;  width: 48px; height: 50px; }
+    #btn-right { top: 52px;  right: 4px; width: 48px; height: 50px; }
+    #btn-center {
+      position: absolute;
+      top: 52px;
+      left: 52px;
+      width: 50px;
+      height: 50px;
+      background: rgba(40, 31, 38, 0.88);
+      border: 1px solid #705850;
+      border-radius: 6px;
+    }
+
+    .round-btn {
+      position: static;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      font-size: 19px;
+    }
+    .rect-btn {
+      position: static;
+      width: 74px;
+      height: 44px;
+      font-size: 13px;
+      border-radius: 10px;
+    }

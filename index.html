@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pokémon FireRed — Cozy Edition</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="screen" width="720" height="480"></canvas>
+  <div id="landing">
+    <div class="ball"></div>
+    <h1>POKEMON RED</h1>
+    <p>A COZY ADVENTURE AWAITS</p>
+    <div id="landing-btns" style="display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;">
+      <button id="continue-btn" type="button" style="display: none;">CONTINUE</button>
+      <button id="start-btn" type="button">START GAME</button>
+    </div>
+    <small>or press Enter</small>
+  </div>
+  <div id="gameover-overlay">
+    <div id="gameover-box">
+      <h2>GAME OVER</h2>
+      <p>You have no POKéMON left. Play again?</p>
+      <button id="playagain-btn" type="button">PLAY AGAIN</button>
+      <small>or press Enter / Z</small>
+    </div>
+  </div>
+</div>
+
+<div class="instructions">
+  <span>Arrows / D-Pad</span>: Walk &bull; <span>Hold X / B</span>: Run &bull; <span>Z / A</span>: Interact &bull; <span>P / OPT</span>: Menu / Save / Bag &bull; <span>M</span>: Mute &bull; <span>N</span>: Season &bull; <span>F</span>: Photo &bull; <span>Z</span> on partner: Say hi
+</div>
+
+<!-- TOUCH CONTROLS -->
+<div id="mobile-controls">
+  <div class="dpad-cluster">
+    <div id="btn-center"></div>
+    <div id="btn-up" class="touch-btn" data-key="ArrowUp">▲</div>
+    <div id="btn-down" class="touch-btn" data-key="ArrowDown">▼</div>
+    <div id="btn-left" class="touch-btn" data-key="ArrowLeft">◀</div>
+    <div id="btn-right" class="touch-btn" data-key="ArrowRight">▶</div>
+  </div>
+
+  <div class="action-cluster">
+    <div class="touch-btn rect-btn" data-key="p" style="margin-right: 6px;">OPT (P)</div>
+    <div class="touch-btn rect-btn" data-key="c" style="margin-right: 6px;">PC (C)</div>
+    <div id="btn-b" class="touch-btn round-btn" data-key="x">B</div>
+    <div id="btn-a" class="touch-btn round-btn" data-key="z">A</div>
+  </div>
+  <div class="action-cluster" style="width:100%;justify-content:center;margin-top:10px">
+    <div class="touch-btn rect-btn" data-key="n" style="width:96px">SEASON (N)</div>
+    <div class="touch-btn rect-btn" data-key="f" style="width:96px">PHOTO (F)</div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
