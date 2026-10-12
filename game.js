@@ -183,15 +183,20 @@ const cryAudio = {
   cache: {},
   play(pokemonId, playbackRate = 1.0, volume = 0.45) {
     if (!pokemonId) return;
-    if (!this.cache[pokemonId]) {
-      const audio = new Audio(`${CRY_BASE_URL}${pokemonId}.ogg`);
-      audio.preload = "auto";
-      this.cache[pokemonId] = audio;
+    try {
+      if (!this.cache[pokemonId]) {
+        const audio = new Audio(`${CRY_BASE_URL}${pokemonId}.ogg`);
+        audio.preload = "auto";
+        this.cache[pokemonId] = audio;
+      }
+      const sound = this.cache[pokemonId].cloneNode();
+      const sfxVol = (typeof settings !== "undefined" && typeof settings.sfx === "number") ? settings.sfx : 1;
+      sound.volume = (typeof music !== "undefined" && music.muted) ? 0 : Math.max(0, Math.min(1, volume * sfxVol));
+      sound.playbackRate = playbackRate;
+      sound.play().catch(e => console.warn(e));
+    } catch (e) {
+      console.warn("cry audio error:", e);
     }
-    const sound = this.cache[pokemonId].cloneNode();
-    sound.volume = music.muted ? 0 : Math.min(1, volume * settings.sfx);
-    sound.playbackRate = playbackRate;
-    sound.play().catch(e => console.warn(e));
   }
 };
 
@@ -844,10 +849,18 @@ function calcDamage(move, attacker, defender) {
 }
 
 window.addEventListener("pointerdown", () => {
-  sfx.init();
-  music.unlock();
-  if (typeof gameState !== "undefined" && gameState === STATE.BATTLE && battle && battle.expState) {
-    handleExpSkip();
+  if (typeof sfx !== "undefined" && sfx.init) sfx.init();
+  if (typeof music !== "undefined" && music.unlock) music.unlock();
+  if (typeof gameState !== "undefined") {
+    if (gameState === STATE.BATTLE && typeof battle !== "undefined" && battle && battle.expState) {
+      handleExpSkip();
+    } else if (gameState === STATE.BADGE_AWARD && typeof dismissBadgeAward === "function") {
+      dismissBadgeAward();
+    } else if (gameState === STATE.GAME_COMPLETE && typeof dismissGameComplete === "function") {
+      dismissGameComplete();
+    } else if (gameState === STATE.DIALOGUE && typeof advanceDialogue === "function") {
+      advanceDialogue();
+    }
   }
 });
 
@@ -1768,7 +1781,8 @@ const STATE = {
   FISHING: "FISHING",
   TOWN_MAP: "TOWN_MAP",
   CAMPING: "CAMPING",
-  LEVEL_UP_MODAL: "LEVEL_UP_MODAL"
+  LEVEL_UP_MODAL: "LEVEL_UP_MODAL",
+  GAME_COMPLETE: "GAME_COMPLETE"
 };
 
 let gameState = STATE.TITLE; // landing page first
@@ -2093,10 +2107,16 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
 
   // BADGE AWARD SCREEN
   if (gameState === STATE.BADGE_AWARD) {
-    if (e.key === "z" || e.key === "Enter" || e.key === "x" || e.key === "Escape") {
-      gameState = STATE.OVERWORLD;
-      music.play();
-      sfx.textBlip();
+    if (e.key === "z" || e.key === "Enter" || e.key === "x" || e.key === "Escape" || e.key === " ") {
+      dismissBadgeAward();
+    }
+    return;
+  }
+
+  // GAME COMPLETE ENDING SCREEN
+  if (gameState === STATE.GAME_COMPLETE) {
+    if (e.key === "z" || e.key === "Enter" || e.key === "x" || e.key === "Escape" || e.key === " ") {
+      dismissGameComplete();
     }
     return;
   }
@@ -2377,23 +2397,8 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
 
   // DIALOGUE
   if (gameState === STATE.DIALOGUE) {
-    if (e.key === "z" || e.key === "Enter") {
-      if (dialogue.renderedText.length < dialogue.fullText.length) {
-        dialogue.renderedText = dialogue.fullText;
-      } else {
-        dialogue.queue.shift();
-        if (dialogue.queue.length === 0) {
-          const cb = dialogue.activeCallback;
-          dialogue.activeCallback = null;
-          if (cb) {
-            cb();
-          } else {
-            gameState = STATE.OVERWORLD;
-          }
-        } else {
-          setDialogueText(dialogue.queue[0]);
-        }
-      }
+    if (e.key === "z" || e.key === "Enter" || e.key === " ") {
+      advanceDialogue();
     }
   } else if (gameState === STATE.BATTLE) {
     handleBattleInput(e.key);
@@ -2402,8 +2407,29 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
 
 window.addEventListener("keyup", (e) => { keys[e.key] = false; });
 
+function advanceDialogue() {
+  if (gameState !== STATE.DIALOGUE) return;
+  if (dialogue.renderedText.length < dialogue.fullText.length) {
+    dialogue.renderedText = dialogue.fullText;
+  } else {
+    dialogue.queue.shift();
+    if (dialogue.queue.length === 0) {
+      const cb = dialogue.activeCallback;
+      dialogue.activeCallback = null;
+      if (cb) {
+        cb();
+      }
+      if (gameState === STATE.DIALOGUE) {
+        gameState = STATE.OVERWORLD;
+      }
+    } else {
+      setDialogueText(dialogue.queue[0]);
+    }
+  }
+}
+
 function setDialogueText(text) {
-  dialogue.fullText = text;
+  dialogue.fullText = text || "";
   dialogue.renderedText = "";
   dialogue.charTimer = 0;
 }
@@ -2839,12 +2865,14 @@ function startGymLeaderBattle() {
   geodude.hp = geodude.maxHp = 34;
   geodude.spriteKey = "geodude_front";
   geodude.backSpriteKey = "geodude_back";
+  ensurePP(geodude);
 
   const onix = JSON.parse(JSON.stringify(SPECIES_DB[95]));
   onix.level = 14;
   onix.hp = onix.maxHp = 48;
   onix.spriteKey = "onix_front";
   onix.backSpriteKey = "onix_back";
+  ensurePP(onix);
 
   battle.isTrainerBattle = true;
   battle.isGym = true;
@@ -2868,12 +2896,14 @@ function startGymLeaderBattleMisty() {
   staryu.hp = staryu.maxHp = 48;
   staryu.spriteKey = "staryu_front";
   staryu.backSpriteKey = "staryu_back";
+  ensurePP(staryu);
 
   const starmie = JSON.parse(JSON.stringify(SPECIES_DB[121]));
   starmie.level = 21;
   starmie.hp = starmie.maxHp = 64;
   starmie.spriteKey = "starmie_front";
   starmie.backSpriteKey = "starmie_back";
+  ensurePP(starmie);
 
   battle.isTrainerBattle = true;
   battle.isGym = true;
@@ -2895,14 +2925,17 @@ function startGymLeaderBattleSurge() {
   const voltorb = JSON.parse(JSON.stringify(SPECIES_DB[100]));
   voltorb.level = 21; voltorb.hp = voltorb.maxHp = 52;
   voltorb.spriteKey = "voltorb_front"; voltorb.backSpriteKey = "voltorb_back";
+  ensurePP(voltorb);
 
   const pikachu = JSON.parse(JSON.stringify(SPECIES_DB[25]));
   pikachu.level = 18; pikachu.hp = pikachu.maxHp = 44;
   pikachu.spriteKey = "pikachu_front"; pikachu.backSpriteKey = "pikachu_back";
+  ensurePP(pikachu);
 
   const raichu = JSON.parse(JSON.stringify(SPECIES_DB[26]));
   raichu.level = 24; raichu.hp = raichu.maxHp = 70;
   raichu.spriteKey = "raichu_front"; raichu.backSpriteKey = "raichu_back";
+  ensurePP(raichu);
 
   battle.isTrainerBattle = true;
   battle.isGym = true;
@@ -3011,13 +3044,13 @@ function initBattle() {
   }
 
   setTimeout(() => { 
-    cryAudio.play(battle.enemy.id); 
+    try { cryAudio.play(battle.enemy.id); } catch (e) { console.warn(e); }
     setTimeout(() => {
       battle.message = `Go! ${battle.playerMon.name}!`;
       triggerPlayerThrowAnimation(firstIdx, () => {
-        cryAudio.play(battle.playerMon.id);
+        try { cryAudio.play(battle.playerMon.id); } catch (e) { console.warn(e); }
         if (battle.playerMon.isShiny) {
-          sfx.shinyFanfare();
+          try { sfx.shinyFanfare(); } catch (e) {}
           for (let i = 0; i < 22; i++) {
             battle.particles.push({
               x: 190 + (Math.random() - 0.5) * 50, y: 280 + (Math.random() - 0.5) * 50,
@@ -3704,6 +3737,8 @@ function handleLevelUp(remainingExp) {
         if (battle.expState.timer) clearTimeout(battle.expState.timer);
         battle.expState = null;
       }
+      const wasGym = battle.isGym;
+      const leader = battle.gymLeader;
       battle.isTrainerBattle = false;
       battle.isGym = false;
       battle.trainerTeam = [];
@@ -3711,6 +3746,9 @@ function handleLevelUp(remainingExp) {
       battle.onWin = null;
       battle.turnLock = false;
       startEvolution(battle.playerMon, curSpecies.evoTargetId, STATE.OVERWORLD);
+      if (wasGym) {
+        evoAnim.pendingGymLeader = leader;
+      }
       return;
     }
 
@@ -3869,7 +3907,7 @@ function restartGame() {
   player.team = [];
   player.storyFlags = { started: false, starterChosen: false };
   player.pokeBalls = 20; player.potions = 5; player.rareCandies = 99;
-  player.hasBoulderBadge = false; player.hasCascadeBadge = false; player.thunderStones = 1; player.moonStones = 1;
+  player.hasBoulderBadge = false; player.hasCascadeBadge = false; player.hasThunderBadge = false; player.thunderStones = 1; player.moonStones = 1;
   player.beatBugCatcher = false; player.money = 500; player.fullHeals = 1; player.found = {}; player.berries = 3; player.steps = 0; player.pc = []; player.beat = {}; battle.isGym = false; battle.onWin = null;
 
   // Battle / animation leftovers
@@ -5261,6 +5299,10 @@ function saveGameManual() {
         money: player.money,
         hasBoulderBadge: player.hasBoulderBadge,
         hasCascadeBadge: player.hasCascadeBadge,
+        hasThunderBadge: player.hasThunderBadge,
+        hasBicycle: player.hasBicycle,
+        hasOldRod: player.hasOldRod,
+        steps: player.steps,
         beatBugCatcher: player.beatBugCatcher,
         beat: player.beat,
         found: player.found,
@@ -5693,7 +5735,7 @@ function renderOptionsMenu() {
   ctx.fillText("❖ SETTINGS & BAG ❖", mx + 50, my + 30);
 
   const totalItems = (player.potions || 0) + (player.pokeBalls || 0) + (player.rareCandies || 0) + (player.thunderStones || 0) + (player.moonStones || 0);
-  const badgeCount = (player.hasBoulderBadge ? 1 : 0) + (player.hasCascadeBadge ? 1 : 0);
+  const badgeCount = (player.hasBoulderBadge ? 1 : 0) + (player.hasCascadeBadge ? 1 : 0) + (player.hasThunderBadge ? 1 : 0);
 
   if (optionsMenu.savedNotice > 0) optionsMenu.savedNotice--;
 
@@ -5866,9 +5908,12 @@ function renderBadgeAwardScene() {
     ctx.fillRect(44, 344, canvas.width - 88, 92);
     ctx.font = "bold 20px 'Courier New'";
     ctx.fillStyle = "#e68a00";
-    ctx.fillText("VICTORY! LT. SURGE WAS DEFEATED!", 65, 380);
+    ctx.fillText("VICTORY! LT. SURGE WAS DEFEATED!", 65, 376);
     ctx.fillStyle = "#30222a";
-    ctx.fillText("Player received the official THUNDER BADGE!", 65, 412);
+    ctx.fillText("Player received the official THUNDER BADGE!", 65, 404);
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillStyle = "#b07010";
+    ctx.fillText("Press Z / Enter to complete the 3-Badge Gym Challenge!", 65, 428);
   } else if (awardedBadge === "CASCADE") {
     drawCascadeBadgeIcon(360, 190, 96);
     ctx.fillStyle = "#332432";
@@ -5877,9 +5922,12 @@ function renderBadgeAwardScene() {
     ctx.fillRect(44, 344, canvas.width - 88, 92);
     ctx.font = "bold 20px 'Courier New'";
     ctx.fillStyle = "#2b7a9e";
-    ctx.fillText("VICTORY! MISTY WAS DEFEATED!", 65, 380);
+    ctx.fillText("VICTORY! MISTY WAS DEFEATED!", 65, 376);
     ctx.fillStyle = "#30222a";
-    ctx.fillText("Player received the official CASCADE BADGE!", 65, 412);
+    ctx.fillText("Player received the official CASCADE BADGE!", 65, 404);
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillStyle = "#3880a4";
+    ctx.fillText("Press Z / Enter to continue", 65, 428);
   } else {
     drawBoulderBadgeIcon(360, 190, 96);
     ctx.fillStyle = "#332432";
@@ -5888,10 +5936,284 @@ function renderBadgeAwardScene() {
     ctx.fillRect(44, 344, canvas.width - 88, 92);
     ctx.font = "bold 20px 'Courier New'";
     ctx.fillStyle = "#b83832";
-    ctx.fillText("VICTORY! BROCK WAS DEFEATED!", 65, 380);
+    ctx.fillText("VICTORY! BROCK WAS DEFEATED!", 65, 376);
     ctx.fillStyle = "#30222a";
-    ctx.fillText("Player received the official BOULDER BADGE!", 65, 412);
+    ctx.fillText("Player received the official BOULDER BADGE!", 65, 404);
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillStyle = "#a8403a";
+    ctx.fillText("Press Z / Enter to continue", 65, 428);
   }
+}
+
+function dismissBadgeAward() {
+  if (awardedBadge === "THUNDER" || (player.hasBoulderBadge && player.hasCascadeBadge && player.hasThunderBadge)) {
+    triggerGameComplete();
+  } else {
+    gameState = STATE.OVERWORLD;
+    music.play();
+    sfx.textBlip && sfx.textBlip();
+  }
+}
+
+// =============================================================================
+// CHAMPION GAME COMPLETE & CONGRATULATIONS ENDING SCENE
+// =============================================================================
+const gameCompleteState = {
+  active: false,
+  timer: 0,
+  confetti: [],
+  sparkles: []
+};
+
+function triggerGameComplete() {
+  gameState = STATE.GAME_COMPLETE;
+  gameCompleteState.active = true;
+  gameCompleteState.timer = 0;
+
+  // Initialize festive confetti
+  gameCompleteState.confetti = [];
+  const palette = ["#ff5252", "#ffd700", "#40c4ff", "#69f0ae", "#e040fb", "#ffab40", "#ffffff", "#ff80ab"];
+  for (let i = 0; i < 85; i++) {
+    gameCompleteState.confetti.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * -300,
+      w: 7 + Math.random() * 6,
+      h: 5 + Math.random() * 4,
+      vx: (Math.random() - 0.5) * 2.2,
+      vy: 1.4 + Math.random() * 2.2,
+      rot: Math.random() * Math.PI * 2,
+      vrot: (Math.random() - 0.5) * 0.12,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+
+  // Shimmering ambient star sparkles
+  gameCompleteState.sparkles = [];
+  for (let i = 0; i < 45; i++) {
+    gameCompleteState.sparkles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: 2 + Math.random() * 3,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.04 + Math.random() * 0.04
+    });
+  }
+
+  saveGameManual();
+  sfx.badgeFanfare && sfx.badgeFanfare();
+  setTimeout(() => {
+    sfx.shinyFanfare && sfx.shinyFanfare();
+  }, 950);
+}
+
+function dismissGameComplete() {
+  gameCompleteState.active = false;
+  gameState = STATE.OVERWORLD;
+  music.play();
+  sfx.textBlip && sfx.textBlip();
+  saveGameManual();
+}
+
+function renderGameComplete() {
+  gameCompleteState.timer++;
+  const timer = gameCompleteState.timer;
+
+  // 1. Rich dark twilight background
+  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bg.addColorStop(0, "#13091c");
+  bg.addColorStop(0.5, "#22132b");
+  bg.addColorStop(1, "#110717");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 2. Central warm golden celebration glow
+  const pulse = Math.sin(timer * 0.05) * 20;
+  const radial = ctx.createRadialGradient(360, 180, 20, 360, 180, 280 + pulse);
+  radial.addColorStop(0, "rgba(255, 210, 100, 0.22)");
+  radial.addColorStop(0.6, "rgba(255, 140, 50, 0.08)");
+  radial.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = radial;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 3. Shimmering star sparkles
+  gameCompleteState.sparkles.forEach(s => {
+    s.phase += s.speed;
+    const a = (Math.sin(s.phase) + 1) * 0.45;
+    ctx.fillStyle = `rgba(255, 245, 180, ${a})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // 4. Header title & laurels
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillText("★ ★ ★  KANTO GYM CHALLENGE COMPLETED  ★ ★ ★", 360, 32);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 24px 'Courier New'";
+  ctx.fillText("CONGRATULATIONS, CHAMPION RED!", 360, 60);
+
+  ctx.fillStyle = "#ffdca8";
+  ctx.font = "13px 'Courier New'";
+  ctx.fillText("You have defeated Brock, Misty & Lt. Surge and earned all 3 Gym Badges!", 360, 82);
+
+  // 5. The 3 Official Badges Case (Mahogany & Gold Frame)
+  const caseX = 50, caseY = 96, caseW = 620, caseH = 110;
+  ctx.fillStyle = "rgba(42, 23, 44, 0.92)";
+  ctx.fillRect(caseX, caseY, caseW, caseH);
+  ctx.strokeStyle = "#e8b948";
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(caseX, caseY, caseW, caseH);
+
+  // Case interior velvet background
+  ctx.fillStyle = "#1e1022";
+  ctx.fillRect(caseX + 6, caseY + 6, caseW - 12, caseH - 12);
+
+  // Badges: Boulder (155), Cascade (360), Thunder (565)
+  const badgeSlots = [
+    { name: "BOULDER BADGE", leader: "BROCK • PEWTER", x: 155, draw: (x, y) => drawBoulderBadgeIcon(x, y, 46), color: "#c2544a" },
+    { name: "CASCADE BADGE", leader: "MISTY • CERULEAN", x: 360, draw: (x, y) => drawCascadeBadgeIcon(x, y, 46), color: "#29b6f6" },
+    { name: "THUNDER BADGE", leader: "LT. SURGE • VERMILION", x: 565, draw: (x, y) => drawThunderBadgeIcon(x, y, 46), color: "#ffb300" }
+  ];
+
+  badgeSlots.forEach(b => {
+    // Rotating golden/elemental halo behind badge
+    ctx.save();
+    ctx.translate(b.x, caseY + 45);
+    ctx.rotate(timer * 0.02);
+    ctx.fillStyle = b.color + "28";
+    for (let j = 0; j < 8; j++) {
+      ctx.rotate((Math.PI * 2) / 8);
+      ctx.fillRect(-4, -32, 8, 64);
+    }
+    ctx.restore();
+
+    // Badge Icon
+    b.draw(b.x, caseY + 45);
+
+    // Label
+    ctx.textAlign = "center";
+    ctx.font = "bold 12px 'Courier New'";
+    ctx.fillStyle = "#fffaea";
+    ctx.fillText(b.name, b.x, caseY + 82);
+    ctx.font = "10px 'Courier New'";
+    ctx.fillStyle = "#cbb29d";
+    ctx.fillText(b.leader, b.x, caseY + 98);
+  });
+
+  // 6. Hall of Fame Champion Pokémon Party Roster
+  const rosterY = 216;
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillText("❖ CHAMPION ROSTER & PARTNER TEAM ❖", 360, rosterY);
+
+  const team = player.team || [];
+  const cardW = 98;
+  const gap = 10;
+  const totalW = team.length * cardW + (team.length - 1) * gap;
+  const startX = Math.max(30, (canvas.width - totalW) / 2);
+
+  team.forEach((mon, i) => {
+    const cx = startX + i * (cardW + gap);
+    const cy = rosterY + 12;
+    const ch = 106;
+
+    // Card background
+    ctx.fillStyle = "rgba(48, 28, 52, 0.88)";
+    ctx.fillRect(cx, cy, cardW, ch);
+    ctx.strokeStyle = "#805878";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx, cy, cardW, ch);
+
+    // Subtle sprite float
+    const bob = Math.sin(timer * 0.06 + i * 1.2) * 2;
+    const spriteKey = mon.name.toLowerCase() + "_front";
+    drawGenSprite(spriteKey, cx + (cardW - 54) / 2, cy + 4 + bob, 54, 54);
+
+    // Mon name
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff8ee";
+    ctx.font = "bold 11px 'Courier New'";
+    const dispName = mon.name.length > 9 ? mon.name.slice(0, 9) : mon.name;
+    ctx.fillText(dispName, cx + cardW / 2, cy + 68);
+
+    // Mon level
+    ctx.fillStyle = "#ffca28";
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.fillText(`Lv. ${mon.level}`, cx + cardW / 2, cy + 82);
+
+    // Type badge pill
+    const tColor = getTypeColor(mon.type);
+    ctx.fillStyle = tColor;
+    ctx.fillRect(cx + (cardW - 46) / 2, cy + 88, 46, 13);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 9px 'Courier New'";
+    ctx.fillText(mon.type, cx + cardW / 2, cy + 98);
+  });
+
+  // 7. Adventure Record Statistics
+  const statsY = 344;
+  ctx.fillStyle = "rgba(32, 18, 36, 0.85)";
+  ctx.fillRect(50, statsY, 620, 36);
+  ctx.strokeStyle = "#5a3a58";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(50, statsY, 620, 36);
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillStyle = "#f5ebd8";
+  const caughtCount = (player.team.length || 0) + (player.pc ? player.pc.length : 0);
+  ctx.fillText(`🏆 BADGES: 3 / 3    •    📖 CAUGHT: ${caughtCount}    •    💰 MONEY: $${player.money}    •    👟 STEPS: ${player.steps || 0}`, 360, statsY + 22);
+
+  // 8. Bottom Glowing Continuation Button
+  const btnY = 394;
+  const btnW = 420;
+  const btnX = (canvas.width - btnW) / 2;
+  const btnH = 46;
+  const btnPulse = (Math.sin(timer * 0.08) + 1) * 0.5;
+
+  const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY);
+  btnGrad.addColorStop(0, "#a83e1c");
+  btnGrad.addColorStop(0.5, "#d67425");
+  btnGrad.addColorStop(1, "#a83e1c");
+  ctx.fillStyle = btnGrad;
+  ctx.fillRect(btnX, btnY, btnW, btnH);
+
+  ctx.strokeStyle = `rgba(255, 235, 160, ${0.7 + btnPulse * 0.3})`;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(btnX, btnY, btnW, btnH);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 16px 'Courier New'";
+  ctx.fillText("▶ CONTINUE EXPLORING KANTO ◀", 360, btnY + 24);
+
+  ctx.fillStyle = "#ffdfb0";
+  ctx.font = "10px 'Courier New'";
+  ctx.fillText("Press Z / Enter or Click Screen to continue roaming with your team!", 360, btnY + 39);
+
+  // 9. Animated Falling Confetti on Top
+  gameCompleteState.confetti.forEach(c => {
+    c.y += c.vy;
+    c.x += Math.sin(c.phase + timer * 0.04) * 1.2 + c.vx;
+    c.rot += c.vrot;
+
+    if (c.y > canvas.height + 20) {
+      c.y = -20;
+      c.x = Math.random() * canvas.width;
+    }
+
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+    ctx.restore();
+  });
+
+  ctx.textAlign = "left"; // restore default alignment
 }
 
 // =============================================================================
@@ -6329,7 +6651,29 @@ function renderEvolutionScene() {
       battle.trainerTeam = [];
       battle.trainerTeamIndex = 0;
       battle.onWin = null;
-      if (battle.isGym && !player.hasBoulderBadge) { player.hasBoulderBadge = true; gameState = STATE.BADGE_AWARD; sfx.badgeFanfare(); }
+    }
+    if (evoAnim.pendingGymLeader) {
+      const leader = evoAnim.pendingGymLeader;
+      evoAnim.pendingGymLeader = null;
+      if (leader === "SURGE" && !player.hasThunderBadge) {
+        player.hasThunderBadge = true;
+        player.money += 2800;
+        awardedBadge = "THUNDER";
+        gameState = STATE.BADGE_AWARD;
+        sfx.badgeFanfare && sfx.badgeFanfare();
+      } else if (leader === "MISTY" && !player.hasCascadeBadge) {
+        player.hasCascadeBadge = true;
+        player.money += 2200;
+        awardedBadge = "CASCADE";
+        gameState = STATE.BADGE_AWARD;
+        sfx.badgeFanfare && sfx.badgeFanfare();
+      } else if (!player.hasBoulderBadge) {
+        player.hasBoulderBadge = true;
+        player.money += 1500;
+        awardedBadge = "BOULDER";
+        gameState = STATE.BADGE_AWARD;
+        sfx.badgeFanfare && sfx.badgeFanfare();
+      }
     }
     music.play();
   }
@@ -6899,6 +7243,8 @@ function gameLoop() {
     renderPCBox();
   } else if (gameState === STATE.STARTER_SELECT) {
     renderStarterSelect();
+  } else if (gameState === STATE.GAME_COMPLETE) {
+    renderGameComplete();
   }
 
   requestAnimationFrame(gameLoop);
