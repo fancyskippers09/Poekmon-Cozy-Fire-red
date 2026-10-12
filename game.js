@@ -843,7 +843,13 @@ function calcDamage(move, attacker, defender) {
   return { dmg, mult, text, crit };
 }
 
-window.addEventListener("pointerdown", () => { sfx.init(); music.unlock(); });
+window.addEventListener("pointerdown", () => {
+  sfx.init();
+  music.unlock();
+  if (typeof gameState !== "undefined" && gameState === STATE.BATTLE && battle && battle.expState) {
+    handleExpSkip();
+  }
+});
 
 // =============================================================================
 // 5. MAPS & DATA (PALLET TOWN, VIRIDIAN CITY & PEWTER CITY)
@@ -3028,6 +3034,9 @@ function initBattle() {
 }
 
 function handleBattleInput(key) {
+  if (battle.expState && (key === "z" || key === "Z" || key === "Enter" || key === " " || key === "x" || key === "X")) {
+    if (handleExpSkip()) return;
+  }
   if (battle.turnLock || battle.slideIn > 0 || playerThrowAnim.active) return;
 
   if (battle.menuState === "MAIN") {
@@ -3304,6 +3313,11 @@ function updatePokeballAnimation() {
 }
 
 function finishGymBattle() {
+  if (battle.expState) {
+    if (battle.expState.interval) clearInterval(battle.expState.interval);
+    if (battle.expState.timer) clearTimeout(battle.expState.timer);
+    battle.expState = null;
+  }
   const isGym = battle.isGym;
   const leader = battle.gymLeader;
   battle.isTrainerBattle = false;
@@ -3311,6 +3325,7 @@ function finishGymBattle() {
   battle.trainerTeam = [];
   battle.trainerTeamIndex = 0;
   battle.onWin = null;
+  battle.turnLock = false;
 
   if (isGym) {
     if (leader === "SURGE" && !player.hasThunderBadge) {
@@ -3502,6 +3517,15 @@ function handleEnemyFaint() {
   }
 }
 
+function handleExpSkip() {
+  if (!battle || !battle.expState) return false;
+  if (typeof battle.expState.skip === "function") {
+    battle.expState.skip();
+    return true;
+  }
+  return false;
+}
+
 function handleVictoryAndExp() {
   sfx.victory();
   if (battle.isTrainerBattle && battle.onWin) { battle.onWin(); battle.onWin = null; }
@@ -3510,27 +3534,133 @@ function handleVictoryAndExp() {
   player.money += prize;
   battle.message = `${battle.playerMon.name} gained ${earnedExp} EXP! +$${prize}`;
 
-  setTimeout(() => {
-    let expToAdd = earnedExp;
-    const expInterval = setInterval(() => {
-      if (expToAdd > 0) {
-        battle.playerMon.exp++;
-        expToAdd--;
-        sfx.expTick();
+  if (!battle.playerMon || earnedExp <= 0) {
+    setTimeout(finishGymBattle, 400);
+    return;
+  }
 
-        if (battle.playerMon.exp >= battle.playerMon.maxExp) {
-          clearInterval(expInterval);
-          handleLevelUp(expToAdd);
-          return;
-        }
-      } else {
-        clearInterval(expInterval);
-        setTimeout(() => {
+  const startTimer = setTimeout(() => {
+    animateBattleExp(earnedExp);
+  }, 350);
+
+  battle.expState = {
+    type: "WAIT_START",
+    timer: startTimer,
+    skip: () => {
+      clearTimeout(startTimer);
+      animateBattleExp(earnedExp);
+    }
+  };
+}
+
+function animateBattleExp(totalExp) {
+  let remainingExp = totalExp;
+
+  function runNextChunk() {
+    if (!battle.playerMon || remainingExp <= 0) {
+      const finishTimer = setTimeout(() => {
+        finishGymBattle();
+      }, 450);
+
+      battle.expState = {
+        type: "FINISH_WAIT",
+        timer: finishTimer,
+        skip: () => {
+          clearTimeout(finishTimer);
           finishGymBattle();
-        }, 2000);
+        }
+      };
+      return;
+    }
+
+    const needed = Math.max(0, battle.playerMon.maxExp - battle.playerMon.exp);
+    if (needed === 0) {
+      handleLevelUp(remainingExp);
+      return;
+    }
+
+    let chunkToAdd = Math.min(remainingExp, needed);
+    // Smooth, snappy animation: complete chunk in ~14-18 ticks (~280-360ms) regardless of total exp amount
+    const step = Math.max(1, Math.ceil(chunkToAdd / 15));
+    let tickCounter = 0;
+    let intervalId = null;
+
+    function finishChunk(isLevelUp) {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      if (isLevelUp) {
+        battle.playerMon.exp = battle.playerMon.maxExp;
+        battle.playerDispExp = battle.playerMon.maxExp;
+        const transitionTimer = setTimeout(() => {
+          handleLevelUp(remainingExp);
+        }, 220);
+
+        battle.expState = {
+          type: "LEVEL_UP_TRANSITION",
+          timer: transitionTimer,
+          skip: () => {
+            clearTimeout(transitionTimer);
+            handleLevelUp(remainingExp);
+          }
+        };
+      } else {
+        const finishTimer = setTimeout(() => {
+          finishGymBattle();
+        }, 450);
+
+        battle.expState = {
+          type: "FINISH_WAIT",
+          timer: finishTimer,
+          skip: () => {
+            clearTimeout(finishTimer);
+            finishGymBattle();
+          }
+        };
       }
-    }, 45);
-  }, 1000);
+    }
+
+    intervalId = setInterval(() => {
+      const delta = Math.min(step, chunkToAdd);
+      battle.playerMon.exp += delta;
+      chunkToAdd -= delta;
+      remainingExp -= delta;
+      tickCounter++;
+
+      if (tickCounter % 2 === 0 || delta === 1) {
+        sfx.expTick();
+      }
+
+      if (battle.playerMon.exp >= battle.playerMon.maxExp) {
+        finishChunk(true);
+        return;
+      }
+
+      if (chunkToAdd <= 0 || remainingExp <= 0) {
+        finishChunk(false);
+        return;
+      }
+    }, 20);
+
+    battle.expState = {
+      type: "FILLING",
+      interval: intervalId,
+      skip: () => {
+        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+        const delta = Math.min(chunkToAdd, Math.max(0, battle.playerMon.maxExp - battle.playerMon.exp));
+        battle.playerMon.exp += delta;
+        remainingExp -= delta;
+        chunkToAdd = 0;
+        battle.playerDispExp = battle.playerMon.exp;
+        sfx.expTick();
+        if (battle.playerMon.exp >= battle.playerMon.maxExp) {
+          finishChunk(true);
+        } else {
+          finishChunk(false);
+        }
+      }
+    };
+  }
+
+  runNextChunk();
 }
 
 // LEVEL UP & CHECK FOR EVOLUTION IN BATTLE
@@ -3566,33 +3696,52 @@ function handleLevelUp(remainingExp) {
   floaters.push({ x: 230, y: 246, text: `ATK +2  DEF +2  SPD +2`, life: 75 });
   spawnParticles("EMBER", 200, 290);
 
-  setTimeout(() => {
+  function proceedAfterLevelUp() {
     const curSpecies = SPECIES_DB[battle.playerMon.id];
     if (curSpecies && curSpecies.evoLevel && battle.playerMon.level >= curSpecies.evoLevel && curSpecies.evoTargetId) {
+      if (battle.expState) {
+        if (battle.expState.interval) clearInterval(battle.expState.interval);
+        if (battle.expState.timer) clearTimeout(battle.expState.timer);
+        battle.expState = null;
+      }
+      battle.isTrainerBattle = false;
+      battle.isGym = false;
+      battle.trainerTeam = [];
+      battle.trainerTeamIndex = 0;
+      battle.onWin = null;
+      battle.turnLock = false;
       startEvolution(battle.playerMon, curSpecies.evoTargetId, STATE.OVERWORLD);
       return;
     }
 
     if (remainingExp > 0) {
-      let expLeft = remainingExp;
-      const secondInterval = setInterval(() => {
-        if (expLeft > 0) {
-          battle.playerMon.exp++;
-          expLeft--;
-          sfx.expTick();
-        } else {
-          clearInterval(secondInterval);
-          setTimeout(() => { 
-            finishGymBattle();
-          }, 1800);
-        }
-      }, 45);
+      animateBattleExp(remainingExp);
     } else {
-      setTimeout(() => { 
+      const finishTimer = setTimeout(() => {
         finishGymBattle();
-      }, 2000);
+      }, 450);
+
+      battle.expState = {
+        type: "FINISH_WAIT",
+        timer: finishTimer,
+        skip: () => {
+          clearTimeout(finishTimer);
+          finishGymBattle();
+        }
+      };
     }
-  }, 2200);
+  }
+
+  const levelUpTimer = setTimeout(proceedAfterLevelUp, 1200);
+
+  battle.expState = {
+    type: "LEVEL_UP",
+    timer: levelUpTimer,
+    skip: () => {
+      clearTimeout(levelUpTimer);
+      proceedAfterLevelUp();
+    }
+  };
 }
 
 // APPLY RARE CANDY LEVEL UP DIRECTLY FROM BAG
@@ -3730,7 +3879,7 @@ function restartGame() {
     playerOffset: { x: 0, y: 0 }, enemyOffset: { x: 0, y: 0 }, particles: [],
     enemyFlicker: false, playerFlicker: false, eFaint: 0, pFaint: 0, eFaintOn: false, pFaintOn: false,
     flash: 0, enemyCaptured: false, enemyScale: 1, isTrainerBattle: false, trainerName: "",
-    trainerTeam: [], trainerTeamIndex: 0
+    trainerTeam: [], trainerTeamIndex: 0, expState: null
   });
   transition.active = false; transition.radius = 0;
   evoAnim.active = false; pokeballAnim.active = false; playerThrowAnim.active = false;
@@ -6480,7 +6629,8 @@ function renderBattle() {
 
   battle.enemyDispHP += (battle.enemy.hp - battle.enemyDispHP) * 0.1;
   battle.playerDispHP += (battle.playerMon.hp - battle.playerDispHP) * 0.1;
-  battle.playerDispExp += (battle.playerMon.exp - battle.playerDispExp) * 0.15;
+  battle.playerDispExp += (battle.playerMon.exp - battle.playerDispExp) * 0.3;
+  if (Math.abs(battle.playerMon.exp - battle.playerDispExp) < 0.25) battle.playerDispExp = battle.playerMon.exp;
 
   if (!battle.enemyCaptured) {
     renderGBAStatusBox(40, 50, battle.enemy.name, battle.enemy.level, battle.enemyDispHP, battle.enemy.maxHp, false, 0, 0);
@@ -6648,7 +6798,7 @@ function renderGBAStatusBox(x, y, name, level, curHp, maxHp, isPlayer, curExp, m
     ctx.fillStyle = "#3d2e38";
     ctx.fillRect(x + 40, y + 62, 190, 6);
 
-    const expPct = Math.max(0, Math.min(1, curExp / maxExp));
+    const expPct = maxExp > 0 ? Math.max(0, Math.min(1, curExp / maxExp)) : 0;
     ctx.fillStyle = "#6ca0dc";
     ctx.fillRect(x + 42, y + 63, 186 * expPct, 4);
   }
