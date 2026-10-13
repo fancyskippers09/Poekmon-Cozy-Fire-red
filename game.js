@@ -1754,9 +1754,59 @@ const TILE_SIZE = 48;
 // =============================================================================
 // 6. ENGINE STATE & VARIABLES
 // =============================================================================
+const CANVAS_WIDTH = 720;
+const CANVAS_HEIGHT = 480;
 const canvas = document.getElementById("screen");
-let ctx = canvas.getContext("2d");
-ctx.imageSmoothingEnabled = false;
+let ctx = canvas ? canvas.getContext("2d") : null;
+
+let dpr = (typeof window !== "undefined" && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2) : 1;
+
+function updateCanvasResolution() {
+  dpr = (typeof window !== "undefined" && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2) : 1;
+  if (canvas) {
+    canvas.width = Math.round(CANVAS_WIDTH * dpr);
+    canvas.height = Math.round(CANVAS_HEIGHT * dpr);
+  }
+  if (ctx) {
+    ctx.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+  }
+}
+updateCanvasResolution();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", () => {
+    const oldDpr = dpr;
+    updateCanvasResolution();
+    if (dpr !== oldDpr) {
+      battleBg = null;
+      vignetteLayer = null;
+      for (const k in mapLayers) delete mapLayers[k];
+    }
+  });
+}
+
+// Smooth rounded rectangle helper with fallback for all browsers
+function drawRoundedRect(c, x, y, w, h, r) {
+  if (w <= 0 || h <= 0) return;
+  r = Math.min(r, Math.min(w / 2, h / 2));
+  if (typeof c.roundRect === "function") {
+    c.beginPath();
+    c.roundRect(x, y, w, h, r);
+  } else {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y);
+    c.arcTo(x + w, y, x + w, y + r, r);
+    c.lineTo(x + w, y + h - r);
+    c.arcTo(x + w, y + h, x + w - r, y + h, r);
+    c.lineTo(x + r, y + h);
+    c.arcTo(x, y + h, x, y + h - r, r);
+    c.lineTo(x, y + r);
+    c.arcTo(x, y, x + r, y, r);
+    c.closePath();
+  }
+}
 
 const STATE = {
   OVERWORLD: "OVERWORLD",
@@ -4163,8 +4213,8 @@ function renderStarterSelect() {
     canvas.addEventListener("pointerdown", (e) => {
       if (gameState !== STATE.STARTER_SELECT) return;
       const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
+      const scaleX = CANVAS_WIDTH / rect.width;
+      const scaleY = CANVAS_HEIGHT / rect.height;
       const mx = (e.clientX - rect.left) * scaleX;
       const my = (e.clientY - rect.top) * scaleY;
       for (let i = 0; i < 3; i++) {
@@ -4231,7 +4281,8 @@ if (continueBtnEl && hasSave()) {
 // =============================================================================
 function drawGenSprite(key, dx, dy, dw, dh, filterSilhouette = false) {
   if (loadedSprites[key]) {
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
     if (filterSilhouette) {
       ctx.save();
       ctx.filter = "brightness(500%) contrast(200%)";
@@ -5113,15 +5164,28 @@ const mapLayers = {};
 const glowSprite = (() => {
   const c = document.createElement("canvas"); c.width = c.height = 96;
   const g = c.getContext("2d"), gr = g.createRadialGradient(48, 48, 2, 48, 48, 48);
-  gr.addColorStop(0, "rgba(255,214,130,0.9)"); gr.addColorStop(1, "rgba(255,170,80,0)");
+  gr.addColorStop(0, "rgba(255, 222, 145, 0.95)");
+  gr.addColorStop(0.4, "rgba(255, 185, 95, 0.45)");
+  gr.addColorStop(1, "rgba(255, 170, 80, 0)");
   g.fillStyle = gr; g.fillRect(0, 0, 96, 96); return c;
 })();
-const vignetteLayer = (() => {
-  const c = document.createElement("canvas"); c.width = 720; c.height = 480;
-  const g = c.getContext("2d"), gr = g.createRadialGradient(360, 240, 200, 360, 240, 480);
-  gr.addColorStop(0, "rgba(255, 196, 120, 0.09)"); gr.addColorStop(1, "rgba(45, 18, 30, 0.38)");
-  g.fillStyle = gr; g.fillRect(0, 0, 720, 480); return c;
-})();
+let vignetteLayer = null;
+function getVignetteLayer() {
+  if (vignetteLayer) return vignetteLayer;
+  vignetteLayer = document.createElement("canvas");
+  vignetteLayer.width = Math.round(CANVAS_WIDTH * dpr);
+  vignetteLayer.height = Math.round(CANVAS_HEIGHT * dpr);
+  const g = vignetteLayer.getContext("2d");
+  if (typeof g.setTransform === "function") g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const gr = g.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 170, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 430);
+  gr.addColorStop(0, "rgba(255, 215, 140, 0.08)");
+  gr.addColorStop(0.65, "rgba(180, 100, 60, 0.05)");
+  gr.addColorStop(0.88, "rgba(55, 20, 35, 0.28)");
+  gr.addColorStop(1, "rgba(28, 12, 22, 0.46)");
+  g.fillStyle = gr;
+  g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  return vignetteLayer;
+}
 
 function drawMapTiles(pass) {
   const m = currentMap, S = TILE_SIZE;
@@ -5198,17 +5262,25 @@ function drawMapTiles(pass) {
 function drawMapLayer() {
   let L = mapLayers[currentMapKey];
   if (!L) {
-    L = document.createElement("canvas"); L.width = 720; L.height = 480;
-    const real = ctx; ctx = L.getContext("2d"); ctx.imageSmoothingEnabled = false;
-    drawMapTiles(0); ctx = real; mapLayers[currentMapKey] = L;
+    L = document.createElement("canvas");
+    L.width = Math.round(CANVAS_WIDTH * dpr);
+    L.height = Math.round(CANVAS_HEIGHT * dpr);
+    const real = ctx;
+    ctx = L.getContext("2d");
+    if (typeof ctx.setTransform === "function") ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+    drawMapTiles(0);
+    ctx = real;
+    mapLayers[currentMapKey] = L;
   }
-  ctx.drawImage(L, 0, 0);
+  ctx.drawImage(L, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   drawMapTiles(1);
   if (currentMapKey === "REDS_HOUSE") {
     // Warm cozy ambient interior glow
     ctx.globalAlpha = 0.06;
     ctx.fillStyle = "#ffe2a0";
-    ctx.fillRect(0, 0, 720, 480);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.globalAlpha = 1;
   }
 }
@@ -5556,14 +5628,93 @@ MAPS.VIRIDIAN_FOREST.hidden.push(hid("f5", 7, 4, "berries", 4));
 let battleBg = null;
 function getBattleBg() {
   if (battleBg) return battleBg;
-  battleBg = document.createElement("canvas"); battleBg.width = 760; battleBg.height = 520;
-  const g = battleBg.getContext("2d"); g.translate(20, 20);
-  const sky = g.createLinearGradient(0, 0, 0, 360);
-  sky.addColorStop(0, "#f9b282"); sky.addColorStop(0.5, "#d98b82"); sky.addColorStop(1, "#664966");
-  g.fillStyle = sky; g.fillRect(-20, -20, 760, 520);
-  g.fillStyle = "#638250";
-  g.beginPath(); g.ellipse(530, 210, 140, 40, 0, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.ellipse(190, 360, 160, 45, 0, 0, Math.PI * 2); g.fill();
+  battleBg = document.createElement("canvas");
+  battleBg.width = Math.round(760 * dpr);
+  battleBg.height = Math.round(520 * dpr);
+  const g = battleBg.getContext("2d");
+  if (typeof g.setTransform === "function") g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.translate(20, 20);
+
+  // 1. Warm twilight / dusk sky gradient
+  const sky = g.createLinearGradient(0, -20, 0, 340);
+  sky.addColorStop(0, "#fca877");
+  sky.addColorStop(0.35, "#e88078");
+  sky.addColorStop(0.7, "#a85d7b");
+  sky.addColorStop(1, "#4f3552");
+  g.fillStyle = sky;
+  g.fillRect(-20, -20, 760, 520);
+
+  // 2. Distant rolling hill silhouettes for depth & coziness
+  g.fillStyle = "rgba(75, 42, 68, 0.42)";
+  g.beginPath();
+  g.moveTo(-20, 240);
+  g.quadraticCurveTo(160, 180, 380, 225);
+  g.quadraticCurveTo(560, 260, 740, 210);
+  g.lineTo(740, 360);
+  g.lineTo(-20, 360);
+  g.closePath();
+  g.fill();
+
+  g.fillStyle = "rgba(52, 28, 50, 0.55)";
+  g.beginPath();
+  g.moveTo(-20, 260);
+  g.quadraticCurveTo(220, 220, 480, 270);
+  g.quadraticCurveTo(620, 290, 740, 255);
+  g.lineTo(740, 360);
+  g.lineTo(-20, 360);
+  g.closePath();
+  g.fill();
+
+  // 3. Opponent grassy battle platform (depth, shadow, grassy rim)
+  g.fillStyle = "rgba(25, 14, 28, 0.38)";
+  g.beginPath();
+  g.ellipse(530, 216, 142, 42, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "#3d4b2e";
+  g.beginPath();
+  g.ellipse(530, 213, 138, 38, 0, 0, Math.PI * 2);
+  g.fill();
+
+  const oppGrass = g.createLinearGradient(530, 175, 530, 245);
+  oppGrass.addColorStop(0, "#7ab358");
+  oppGrass.addColorStop(1, "#528637");
+  g.fillStyle = oppGrass;
+  g.beginPath();
+  g.ellipse(530, 208, 136, 36, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.strokeStyle = "rgba(175, 228, 135, 0.45)";
+  g.lineWidth = 2;
+  g.beginPath();
+  g.ellipse(530, 206, 130, 33, 0, Math.PI * 0.9, Math.PI * 2.1);
+  g.stroke();
+
+  // 4. Player grassy battle platform (closer, richer meadow)
+  g.fillStyle = "rgba(20, 10, 24, 0.45)";
+  g.beginPath();
+  g.ellipse(190, 368, 166, 48, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.fillStyle = "#394528";
+  g.beginPath();
+  g.ellipse(190, 365, 162, 45, 0, 0, Math.PI * 2);
+  g.fill();
+
+  const plyGrass = g.createLinearGradient(190, 320, 190, 405);
+  plyGrass.addColorStop(0, "#72ad50");
+  plyGrass.addColorStop(1, "#487a30");
+  g.fillStyle = plyGrass;
+  g.beginPath();
+  g.ellipse(190, 360, 160, 43, 0, 0, Math.PI * 2);
+  g.fill();
+
+  g.strokeStyle = "rgba(175, 230, 130, 0.5)";
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.ellipse(190, 357, 154, 40, 0, Math.PI * 0.85, Math.PI * 2.15);
+  g.stroke();
+
   return battleBg;
 }
 
@@ -5633,7 +5784,7 @@ function renderPCBox() {
 
 function renderOverworld() {
   ctx.fillStyle = currentMapKey === "VIRIDIAN_FOREST" ? "#3d5e36" : currentMapKey === "PEWTER_CITY" ? "#5a6e54" : (currentMapKey === "VIRIDIAN_CITY" ? "#4d7342" : "#567c44");
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   drawMapLayer();
   drawHidden();
@@ -5690,7 +5841,7 @@ function renderOverworld() {
 
   drawFx();
 
-  ctx.drawImage(vignetteLayer, 0, 0);
+  ctx.drawImage(getVignetteLayer(), 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   drawDayNight();
   drawWeather();
   if (photoFlash > 0) { ctx.fillStyle = `rgba(255,255,255,${(photoFlash * 0.7).toFixed(2)})`; ctx.fillRect(0, 0, 720, 480); photoFlash *= 0.88; if (photoFlash < 0.02) photoFlash = 0; }
@@ -5719,7 +5870,7 @@ function renderOptionsMenu() {
   else if (optionsMenu.returnState === STATE.BATTLE) renderBattle();
 
   ctx.fillStyle = "rgba(18, 12, 22, 0.75)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   const mx = 170, my = 26, mw = 380, mh = 428;
   ctx.fillStyle = "#281e28";
@@ -5784,7 +5935,7 @@ function renderOptionsMenu() {
 
 function renderTrainerCardScreen() {
   ctx.fillStyle = "#1e1620";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   const cx = 80, cy = 50, cw = 560, ch = 380;
   ctx.fillStyle = "#f5efe6";
@@ -5873,7 +6024,7 @@ function renderTrainerCardScreen() {
   }
 
   ctx.fillStyle = "#ffcb78";
-  ctx.fillRect(0, 445, canvas.width, 35);
+  ctx.fillRect(0, 445, CANVAS_WIDTH, 35);
   ctx.fillStyle = "#2c1f28";
   ctx.font = "bold 14px 'Courier New'";
   ctx.fillText("Press Z / X / Esc to return", 240, 467);
@@ -5882,7 +6033,7 @@ function renderTrainerCardScreen() {
 // BADGE AWARD FANFARE CUTSCENE
 function renderBadgeAwardScene() {
   ctx.fillStyle = "rgba(18, 12, 22, 0.92)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.save();
   ctx.translate(360, 190);
@@ -5903,9 +6054,9 @@ function renderBadgeAwardScene() {
   if (awardedBadge === "THUNDER") {
     drawThunderBadgeIcon(360, 190, 96);
     ctx.fillStyle = "#332432";
-    ctx.fillRect(40, 340, canvas.width - 80, 100);
+    ctx.fillRect(40, 340, CANVAS_WIDTH - 80, 100);
     ctx.fillStyle = "#fdf7eb";
-    ctx.fillRect(44, 344, canvas.width - 88, 92);
+    ctx.fillRect(44, 344, CANVAS_WIDTH - 88, 92);
     ctx.font = "bold 20px 'Courier New'";
     ctx.fillStyle = "#e68a00";
     ctx.fillText("VICTORY! LT. SURGE WAS DEFEATED!", 65, 376);
@@ -5917,9 +6068,9 @@ function renderBadgeAwardScene() {
   } else if (awardedBadge === "CASCADE") {
     drawCascadeBadgeIcon(360, 190, 96);
     ctx.fillStyle = "#332432";
-    ctx.fillRect(40, 340, canvas.width - 80, 100);
+    ctx.fillRect(40, 340, CANVAS_WIDTH - 80, 100);
     ctx.fillStyle = "#fdf7eb";
-    ctx.fillRect(44, 344, canvas.width - 88, 92);
+    ctx.fillRect(44, 344, CANVAS_WIDTH - 88, 92);
     ctx.font = "bold 20px 'Courier New'";
     ctx.fillStyle = "#2b7a9e";
     ctx.fillText("VICTORY! MISTY WAS DEFEATED!", 65, 376);
@@ -5931,9 +6082,9 @@ function renderBadgeAwardScene() {
   } else {
     drawBoulderBadgeIcon(360, 190, 96);
     ctx.fillStyle = "#332432";
-    ctx.fillRect(40, 340, canvas.width - 80, 100);
+    ctx.fillRect(40, 340, CANVAS_WIDTH - 80, 100);
     ctx.fillStyle = "#fdf7eb";
-    ctx.fillRect(44, 344, canvas.width - 88, 92);
+    ctx.fillRect(44, 344, CANVAS_WIDTH - 88, 92);
     ctx.font = "bold 20px 'Courier New'";
     ctx.fillStyle = "#b83832";
     ctx.fillText("VICTORY! BROCK WAS DEFEATED!", 65, 376);
@@ -5975,7 +6126,7 @@ function triggerGameComplete() {
   const palette = ["#ff5252", "#ffd700", "#40c4ff", "#69f0ae", "#e040fb", "#ffab40", "#ffffff", "#ff80ab"];
   for (let i = 0; i < 85; i++) {
     gameCompleteState.confetti.push({
-      x: Math.random() * canvas.width,
+      x: Math.random() * CANVAS_WIDTH,
       y: Math.random() * -300,
       w: 7 + Math.random() * 6,
       h: 5 + Math.random() * 4,
@@ -5992,8 +6143,8 @@ function triggerGameComplete() {
   gameCompleteState.sparkles = [];
   for (let i = 0; i < 45; i++) {
     gameCompleteState.sparkles.push({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
+      x: Math.random() * CANVAS_WIDTH,
+      y: Math.random() * CANVAS_HEIGHT,
       size: 2 + Math.random() * 3,
       phase: Math.random() * Math.PI * 2,
       speed: 0.04 + Math.random() * 0.04
@@ -6020,12 +6171,12 @@ function renderGameComplete() {
   const timer = gameCompleteState.timer;
 
   // 1. Rich dark twilight background
-  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  const bg = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
   bg.addColorStop(0, "#13091c");
   bg.addColorStop(0.5, "#22132b");
   bg.addColorStop(1, "#110717");
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   // 2. Central warm golden celebration glow
   const pulse = Math.sin(timer * 0.05) * 20;
@@ -6034,7 +6185,7 @@ function renderGameComplete() {
   radial.addColorStop(0.6, "rgba(255, 140, 50, 0.08)");
   radial.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = radial;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   // 3. Shimmering star sparkles
   gameCompleteState.sparkles.forEach(s => {
@@ -6114,7 +6265,7 @@ function renderGameComplete() {
   const cardW = 98;
   const gap = 10;
   const totalW = team.length * cardW + (team.length - 1) * gap;
-  const startX = Math.max(30, (canvas.width - totalW) / 2);
+  const startX = Math.max(30, (CANVAS_WIDTH - totalW) / 2);
 
   team.forEach((mon, i) => {
     const cx = startX + i * (cardW + gap);
@@ -6171,7 +6322,7 @@ function renderGameComplete() {
   // 8. Bottom Glowing Continuation Button
   const btnY = 394;
   const btnW = 420;
-  const btnX = (canvas.width - btnW) / 2;
+  const btnX = (CANVAS_WIDTH - btnW) / 2;
   const btnH = 46;
   const btnPulse = (Math.sin(timer * 0.08) + 1) * 0.5;
 
@@ -6200,9 +6351,9 @@ function renderGameComplete() {
     c.x += Math.sin(c.phase + timer * 0.04) * 1.2 + c.vx;
     c.rot += c.vrot;
 
-    if (c.y > canvas.height + 20) {
+    if (c.y > CANVAS_HEIGHT + 20) {
       c.y = -20;
-      c.x = Math.random() * canvas.width;
+      c.x = Math.random() * CANVAS_WIDTH;
     }
 
     ctx.save();
@@ -6286,7 +6437,7 @@ function renderPokedexView() {
   const mon = SPECIES_DB[currentKey];
 
   ctx.fillStyle = "#1e1620";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.fillStyle = "#291c28";
   ctx.fillRect(20, 20, 230, 440);
@@ -6414,7 +6565,7 @@ function getBagItems() {
 
 function renderBagMenu() {
   ctx.fillStyle = "#1e1620";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 22px 'Courier New'";
@@ -6470,7 +6621,7 @@ function renderBagMenu() {
 
 function renderBagSelectTarget() {
   ctx.fillStyle = "#1e1620";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 20px 'Courier New'";
@@ -6536,7 +6687,7 @@ function renderBagSelectTarget() {
 // =============================================================================
 function renderEvolutionScene() {
   ctx.fillStyle = "#0c0812";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   evoAnim.timer++;
 
@@ -6684,7 +6835,7 @@ function renderEvolutionScene() {
 // =============================================================================
 function renderPartyMenu() {
   ctx.fillStyle = "#1e1620";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 22px 'Courier New'";
@@ -6749,7 +6900,7 @@ function renderDetailedStatsScreen() {
   bg.addColorStop(0, "#2c1f2b");
   bg.addColorStop(1, "#18101a");
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.fillStyle = "#3d2b3b";
   ctx.fillRect(20, 16, 680, 44);
@@ -6919,10 +7070,18 @@ function renderBattle() {
 
   if (!battle.enemyCaptured) {
     if (!battle.enemyFlicker || Math.floor(Date.now() / 60) % 2 === 0) {
-      ctx.save();
-      ctx.globalAlpha = 1 - battle.eFaint;
       const ex = 434 + battle.edx + battle.slideIn + 96;
       const ey = 30 + battle.edy + eb + battle.eFaint * 50 + 96;
+      ctx.save();
+      ctx.globalAlpha = (1 - battle.eFaint) * 0.35;
+      ctx.fillStyle = "#1e1424";
+      ctx.beginPath();
+      ctx.ellipse(ex, 202, 52 * battle.enemyScale, 16 * battle.enemyScale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 1 - battle.eFaint;
       ctx.translate(ex, ey);
       ctx.scale(battle.enemyScale, battle.enemyScale);
       drawGenSprite(battle.enemy.spriteKey, -96, -96, 192, 192);
@@ -6932,9 +7091,19 @@ function renderBattle() {
 
   if (!playerThrowAnim.active) {
     if (!battle.playerFlicker || Math.floor(Date.now() / 60) % 2 === 0) {
+      const px = 94 + battle.pdx - battle.slideIn + 96;
+      ctx.save();
+      ctx.globalAlpha = (1 - battle.pFaint) * 0.35;
+      ctx.fillStyle = "#1e1424";
+      ctx.beginPath();
+      ctx.ellipse(px, 342, 58, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
       ctx.globalAlpha = 1 - battle.pFaint;
       drawGenSprite(battle.playerMon.backSpriteKey, 94 + battle.pdx - battle.slideIn, 175 + battle.pdy + pb + battle.pFaint * 50, 192, 192);
-      ctx.globalAlpha = 1;
+      ctx.restore();
     }
   } else {
     drawPokeball(playerThrowAnim.ballX, playerThrowAnim.ballY, 14, playerThrowAnim.progress * 15);
@@ -6967,7 +7136,7 @@ function renderBattle() {
 
   if (battle.flash > 0.02) {
     ctx.fillStyle = `rgba(255,240,210,${battle.flash * 0.5})`;
-    ctx.fillRect(-20, -20, canvas.width + 40, 400);
+    ctx.fillRect(-20, -20, CANVAS_WIDTH + 40, 400);
     battle.flash *= 0.84;
   }
 
@@ -6983,8 +7152,16 @@ function renderBattle() {
   if (!battle.enemyCaptured) drawStatusTag(battle.enemy, 52, 96);
   drawStatusTag(battle.playerMon, 434, 262);
 
-  ctx.fillStyle = "#332432"; ctx.fillRect(0, 360, canvas.width, 120);
-  ctx.fillStyle = "#fdf7eb"; ctx.fillRect(6, 366, canvas.width - 12, 108);
+  // Cozy battle message box
+  const bBoxY = 360, bBoxH = 120;
+  ctx.fillStyle = "#332432";
+  ctx.fillRect(0, bBoxY, CANVAS_WIDTH, bBoxH);
+
+  const bGrad = ctx.createLinearGradient(0, bBoxY + 6, 0, bBoxY + bBoxH);
+  bGrad.addColorStop(0, "#fdf9f0");
+  bGrad.addColorStop(1, "#f5ebd9");
+  ctx.fillStyle = bGrad;
+  ctx.fillRect(6, bBoxY + 6, CANVAS_WIDTH - 12, bBoxH - 12);
 
   ctx.font = "bold 22px 'Courier New'";
   ctx.fillStyle = "#30222a";
@@ -6992,10 +7169,21 @@ function renderBattle() {
 
   if (!battle.turnLock && battle.slideIn === 0 && !playerThrowAnim.active) {
     if (battle.menuState === "MAIN") {
-      ctx.fillStyle = "#f5ebd8";
-      ctx.fillRect(430, 366, 284, 108);
-      ctx.strokeStyle = "#5a4356"; ctx.lineWidth = 4;
-      ctx.strokeRect(430, 366, 284, 108);
+      const mX = 430, mY = 366, mW = 284, mH = 108;
+      ctx.fillStyle = "rgba(30, 18, 28, 0.25)";
+      drawRoundedRect(ctx, mX + 2, mY + 3, mW, mH, 10);
+      ctx.fill();
+
+      const mGrad = ctx.createLinearGradient(mX, mY, mX, mY + mH);
+      mGrad.addColorStop(0, "#fffcf4");
+      mGrad.addColorStop(1, "#f4ebd8");
+      ctx.fillStyle = mGrad;
+      drawRoundedRect(ctx, mX, mY, mW, mH, 10);
+      ctx.fill();
+
+      ctx.strokeStyle = "#5a4356";
+      ctx.lineWidth = 3;
+      ctx.stroke();
 
       const mainOptions = ["FIGHT", "BAG", "POKéMON", "RUN"];
       mainOptions.forEach((opt, idx) => {
@@ -7007,10 +7195,21 @@ function renderBattle() {
         ctx.fillText(`${battle.menuIndex === idx ? "▶" : " "}${opt}`, x, y);
       });
     } else if (battle.menuState === "MOVES") {
-      ctx.fillStyle = "#f5ebd8";
-      ctx.fillRect(360, 366, 354, 108);
-      ctx.strokeStyle = "#5a4356"; ctx.lineWidth = 4;
-      ctx.strokeRect(360, 366, 354, 108);
+      const mX = 360, mY = 366, mW = 354, mH = 108;
+      ctx.fillStyle = "rgba(30, 18, 28, 0.25)";
+      drawRoundedRect(ctx, mX + 2, mY + 3, mW, mH, 10);
+      ctx.fill();
+
+      const mGrad = ctx.createLinearGradient(mX, mY, mX, mY + mH);
+      mGrad.addColorStop(0, "#fffcf4");
+      mGrad.addColorStop(1, "#f4ebd8");
+      ctx.fillStyle = mGrad;
+      drawRoundedRect(ctx, mX, mY, mW, mH, 10);
+      ctx.fill();
+
+      ctx.strokeStyle = "#5a4356";
+      ctx.lineWidth = 3;
+      ctx.stroke();
 
       const numMoves = battle.playerMon.moves.length;
       const lineH = numMoves > 3 ? 24 : 28;
@@ -7032,10 +7231,21 @@ function renderBattle() {
         ctx.font = prevFont;
       });
     } else if (battle.menuState === "BAG") {
-      ctx.fillStyle = "#f5ebd8";
-      ctx.fillRect(360, 366, 354, 108);
-      ctx.strokeStyle = "#5a4356"; ctx.lineWidth = 4;
-      ctx.strokeRect(360, 366, 354, 108);
+      const mX = 360, mY = 366, mW = 354, mH = 108;
+      ctx.fillStyle = "rgba(30, 18, 28, 0.25)";
+      drawRoundedRect(ctx, mX + 2, mY + 3, mW, mH, 10);
+      ctx.fill();
+
+      const mGrad = ctx.createLinearGradient(mX, mY, mX, mY + mH);
+      mGrad.addColorStop(0, "#fffcf4");
+      mGrad.addColorStop(1, "#f4ebd8");
+      ctx.fillStyle = mGrad;
+      drawRoundedRect(ctx, mX, mY, mW, mH, 10);
+      ctx.fill();
+
+      ctx.strokeStyle = "#5a4356";
+      ctx.lineWidth = 3;
+      ctx.stroke();
 
       ctx.fillStyle = "#d85848";
       ctx.font = "bold 16px 'Courier New'";
@@ -7045,7 +7255,6 @@ function renderBattle() {
       });
       ctx.font = "bold 13px 'Courier New'";
       ctx.fillStyle = "#73646c";
-      
     }
   }
 
@@ -7058,7 +7267,7 @@ function renderBattle() {
 
 function renderBattlePokemonPartyMenu() {
   ctx.fillStyle = "rgba(22, 14, 24, 0.95)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 24px 'Courier New'";
@@ -7112,39 +7321,89 @@ function renderGBAStatusBox(x, y, name, level, curHp, maxHp, isPlayer, curExp, m
   y += Math.sin(T * 0.06 + (isPlayer ? 1 : 0)) * 1.5;
   const boxHeight = isPlayer ? 78 : 64;
 
-  ctx.fillStyle = "#fcf4e6";
-  ctx.fillRect(x, y, 260, boxHeight);
-  ctx.strokeStyle = (curHp / maxHp < 0.25 && Math.floor(T / 15) % 2) ? "#d85848" : "#59424e";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(x, y, 260, boxHeight);
+  // Soft ambient card shadow
+  ctx.fillStyle = "rgba(22, 14, 25, 0.22)";
+  drawRoundedRect(ctx, x + 2, y + 3, 260, boxHeight, 10);
+  ctx.fill();
 
-  ctx.font = "bold 17px 'Courier New'";
+  // Cozy parchment background card
+  const cardGrad = ctx.createLinearGradient(x, y, x, y + boxHeight);
+  cardGrad.addColorStop(0, "#fffef7");
+  cardGrad.addColorStop(1, "#f4ebd8");
+  ctx.fillStyle = cardGrad;
+  drawRoundedRect(ctx, x, y, 260, boxHeight, 10);
+  ctx.fill();
+
+  const isCritical = (curHp / maxHp < 0.25 && Math.floor(T / 15) % 2);
+  ctx.strokeStyle = isCritical ? "#d85848" : "#59424e";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Pokemon Name & Level
+  ctx.font = "bold 16px 'Courier New'";
   ctx.fillStyle = "#2c1c25";
-  ctx.fillText(name, x + 12, y + 22);
-  ctx.fillText(`Lv${level}`, x + 190, y + 22);
+  ctx.fillText(name, x + 14, y + 21);
+  ctx.fillStyle = "#bd3832";
+  ctx.fillText(`Lv${level}`, x + 192, y + 21);
 
-  ctx.fillStyle = "#3d2e38";
-  ctx.fillRect(x + 40, y + 32, 190, 10);
+  // HP Bar Track
+  ctx.fillStyle = "#332630";
+  drawRoundedRect(ctx, x + 40, y + 30, 192, 11, 5.5);
+  ctx.fill();
 
+  ctx.font = "bold 10px 'Courier New'";
+  ctx.fillStyle = "#f5b244";
+  ctx.fillText("HP", x + 16, y + 39);
+
+  // HP Bar Fill with smooth gradient and shine
   const pct = Math.max(0, Math.min(1, curHp / maxHp));
-  ctx.fillStyle = pct > 0.5 ? "#5cb842" : pct > 0.2 ? "#e0a643" : "#d85848";
-  ctx.fillRect(x + 42, y + 34, 186 * pct, 6);
+  if (pct > 0) {
+    const fillW = Math.max(6, 188 * pct);
+    const hpGrad = ctx.createLinearGradient(x + 42, y + 32, x + 42 + fillW, y + 32);
+    if (pct > 0.5) {
+      hpGrad.addColorStop(0, "#7edb56");
+      hpGrad.addColorStop(1, "#52ab35");
+    } else if (pct > 0.2) {
+      hpGrad.addColorStop(0, "#fabd48");
+      hpGrad.addColorStop(1, "#d98623");
+    } else {
+      hpGrad.addColorStop(0, "#f05a4d");
+      hpGrad.addColorStop(1, "#c2372a");
+    }
+    ctx.fillStyle = hpGrad;
+    drawRoundedRect(ctx, x + 42, y + 32, fillW, 7, 3.5);
+    ctx.fill();
+
+    // Subtle gloss highlight
+    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    drawRoundedRect(ctx, x + 44, y + 33, Math.max(2, fillW - 4), 2, 1);
+    ctx.fill();
+  }
 
   if (isPlayer) {
-    ctx.font = "bold 12px 'Courier New'";
-    ctx.fillStyle = "#3d2e38";
-    ctx.fillText(`${Math.round(curHp)}/${maxHp}`, x + 180, y + 54);
-
     ctx.font = "bold 11px 'Courier New'";
-    ctx.fillStyle = "#4a6c8c";
-    ctx.fillText("EXP", x + 14, y + 68);
+    ctx.fillStyle = "#4a3a44";
+    ctx.fillText(`${Math.round(curHp)}/${maxHp}`, x + 178, y + 53);
 
-    ctx.fillStyle = "#3d2e38";
-    ctx.fillRect(x + 40, y + 62, 190, 6);
+    // EXP Bar Track
+    ctx.fillStyle = "#27222c";
+    drawRoundedRect(ctx, x + 40, y + 61, 192, 7, 3.5);
+    ctx.fill();
+
+    ctx.font = "bold 9px 'Courier New'";
+    ctx.fillStyle = "#5c8dc2";
+    ctx.fillText("EXP", x + 14, y + 67);
 
     const expPct = maxExp > 0 ? Math.max(0, Math.min(1, curExp / maxExp)) : 0;
-    ctx.fillStyle = "#6ca0dc";
-    ctx.fillRect(x + 42, y + 63, 186 * expPct, 4);
+    if (expPct > 0) {
+      const expW = Math.max(4, 188 * expPct);
+      const expGrad = ctx.createLinearGradient(x + 42, y + 62, x + 42 + expW, y + 62);
+      expGrad.addColorStop(0, "#73c4f7");
+      expGrad.addColorStop(1, "#3c83d6");
+      ctx.fillStyle = expGrad;
+      drawRoundedRect(ctx, x + 42, y + 62, expW, 5, 2.5);
+      ctx.fill();
+    }
   }
 }
 
@@ -7153,10 +7412,28 @@ function renderDialogue() {
   dialogue.anim = Math.min(1, (dialogue.anim || 0) + 0.12);
   const oy = Math.pow(1 - dialogue.anim, 3) * 140;
 
-  ctx.fillStyle = "#332432";
-  ctx.fillRect(24, 340 + oy, canvas.width - 48, 116);
-  ctx.fillStyle = "#fbf4e8";
-  ctx.fillRect(30, 346 + oy, canvas.width - 60, 104);
+  const dx = 24;
+  const dy = 340 + oy;
+  const dw = CANVAS_WIDTH - 48;
+  const dh = 116;
+
+  // Drop shadow
+  ctx.fillStyle = "rgba(20, 12, 22, 0.35)";
+  drawRoundedRect(ctx, dx + 2, dy + 3, dw, dh, 12);
+  ctx.fill();
+
+  // Dark border frame
+  ctx.fillStyle = "#342232";
+  drawRoundedRect(ctx, dx, dy, dw, dh, 12);
+  ctx.fill();
+
+  // Cozy cream parchment interior
+  const dlgGrad = ctx.createLinearGradient(dx, dy, dx, dy + dh);
+  dlgGrad.addColorStop(0, "#fdf9f0");
+  dlgGrad.addColorStop(1, "#f5ebd9");
+  ctx.fillStyle = dlgGrad;
+  drawRoundedRect(ctx, dx + 5, dy + 5, dw - 10, dh - 10, 8);
+  ctx.fill();
 
   if (dialogue.renderedText.length < dialogue.fullText.length) {
     dialogue.charTimer++;
@@ -7175,7 +7452,7 @@ function renderDialogue() {
 
   if (dialogue.renderedText.length >= dialogue.fullText.length) {
     ctx.fillStyle = "#bd3832";
-    ctx.fillText("▼", canvas.width - 70, 436 + Math.sin(T * 0.2) * 3);
+    ctx.fillText("▼", CANVAS_WIDTH - 70, 436 + Math.sin(T * 0.2) * 3);
   }
 }
 
@@ -7185,13 +7462,13 @@ function renderTransition() {
   ctx.fillStyle = "#1a121c";
   transition.radius += 18;
   if (transition.radius < 220 && Math.floor(transition.radius / 36) % 2 === 0) {
-    ctx.globalAlpha = 0.55; ctx.fillStyle = "#fff4db"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 0.55; ctx.fillStyle = "#fff4db"; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.globalAlpha = 1; ctx.fillStyle = "#1a121c";
   }
 
   ctx.beginPath();
-  ctx.rect(0, 0, canvas.width, canvas.height);
-  ctx.arc(canvas.width / 2, canvas.height / 2, Math.max(0, transition.maxRadius - transition.radius), 0, Math.PI * 2, true);
+  ctx.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.arc(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, Math.max(0, transition.maxRadius - transition.radius), 0, Math.PI * 2, true);
   ctx.fill();
   ctx.restore();
 
@@ -7207,6 +7484,13 @@ function renderTransition() {
 function gameLoop() {
   T++;
   if (gameState !== STATE.BATTLE && gameState !== STATE.EVOLUTION_SCENE) updateFx();
+
+  if (ctx) {
+    ctx.save();
+    if (typeof ctx.setTransform === "function") {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
 
   if (gameState === STATE.OVERWORLD) {
     updateOverworld();
@@ -7245,6 +7529,10 @@ function gameLoop() {
     renderStarterSelect();
   } else if (gameState === STATE.GAME_COMPLETE) {
     renderGameComplete();
+  }
+
+  if (ctx) {
+    ctx.restore();
   }
 
   requestAnimationFrame(gameLoop);
