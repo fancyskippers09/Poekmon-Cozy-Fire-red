@@ -1414,15 +1414,25 @@ MAPS.CERULEAN_CITY = {
       y: 5,
       palette: { body: "#3865a3", hair: "#c8b298" },
       getDialogue: () => {
-        if (player.hasOldRod) {
+        if (!player.hasOldRod) {
+          player.hasOldRod = true;
+          sfx.levelUp && sfx.levelUp();
           return [
-            "Fisherman Ned: How are the fish biting today?",
-            "Remember: stand facing any water and press Z to cast your line!"
+            "Fisherman Ned: Ah, the tranquil waters of Cerulean City! Do you like to fish?",
+            "Take this OLD ROD! Stand facing any water and press Z to cast your line!"
+          ];
+        }
+        if (player.hasCascadeBadge && !player.hasGoodRod) {
+          player.hasGoodRod = true;
+          sfx.badgeFanfare && sfx.badgeFanfare();
+          return [
+            "Fisherman Ned: Splendid! You conquered the Cerulean Gym and proved your skill!",
+            "You deserve this master tool: the GOOD ROD! It can hook rare aquatic species like Horsea, Krabby, and Shellder!"
           ];
         }
         return [
-          "Fisherman Ned: Ah, the tranquil waters of Cerulean City! Do you like to fish?",
-          "Take this OLD ROD! Stand facing any water and press Z to cast your line!"
+          "Fisherman Ned: How are the fish biting today?",
+          "Stand facing any water and press Z to cast your line!"
         ];
       },
       onInteract: () => {
@@ -1439,7 +1449,9 @@ MAPS.CERULEAN_CITY = {
     { fromX: 6, fromY: 0, targetMap: "ROUTE_24", targetX: 7, targetY: 11 },
     { fromX: 7, fromY: 0, targetMap: "ROUTE_24", targetX: 7, targetY: 11 },
     { fromX: 7, fromY: 9, targetMap: "VERMILION_CITY", targetX: 7, targetY: 1 },
-    { fromX: 8, fromY: 9, targetMap: "VERMILION_CITY", targetX: 7, targetY: 1 }
+    { fromX: 8, fromY: 9, targetMap: "VERMILION_CITY", targetX: 7, targetY: 1 },
+    { fromX: 10, fromY: 8, targetMap: "DAYCARE", targetX: 7, targetY: 8 },
+    { fromX: 11, fromY: 8, targetMap: "DAYCARE", targetX: 7, targetY: 8 }
   ],
   hidden: [hid("cer1", 13, 3, "moonStones", 1), hid("cer2", 13, 7, "money", 800)],
   picnic: { x: 7, y: 3 }
@@ -1717,6 +1729,120 @@ MAPS.SS_ANNE = {
   ]
 };
 
+// POKÉMON DAYCARE (COZY COUNTRYSIDE NURSERY)
+MAPS.DAYCARE = {
+  name: "POKÉMON DAYCARE", cols: 15, rows: 10,
+  tiles: [
+    [11,11,11,11,11,11,11,11,11,11,11,11,11,11,11],
+    [11,11,15,11,17,17,11,14,11,20,20,11,11,11,11],
+    [11,12,12,12,12,12,12,12,12,12,12,12,12,12,11],
+    [11,12,13,13,13,13,13,13,13,13,13,13,13,12,11],
+    [11,12,13,16,16,13,13,13,13,13,16,16,13,12,11],
+    [11,12,13,13,13,13,13,13,13,13,13,13,13,12,11],
+    [11,12,12,12,12,12,12,12,12,12,12,12,12,12,11],
+    [11,12,12,12,12,12,12,12,12,12,12,12,12,12,11],
+    [11,11,11,11,11,11,11,18,11,11,11,11,11,11,11],
+    [11,11,11,11,11,11,11,18,11,11,11,11,11,11,11]
+  ],
+  npcs: [
+    {
+      name: "DAYCARE GRANDMA",
+      x: 4,
+      y: 4,
+      palette: { body: "#5b8a72", hair: "#d8d0c5" },
+      dialogue: [],
+      getDialogue: () => {
+        if (!player.daycare || !player.daycare.mon) {
+          if (player.team.length <= 1) {
+            return [
+              "Grandma: Welcome to the Country Daycare!",
+              "Grandma: You only have one Pokémon with you. You need at least two before you can leave one with us to raise!"
+            ];
+          }
+          const candidate = player.team[1];
+          player.team.splice(1, 1);
+          player.daycare = {
+            mon: candidate,
+            depositSteps: 0,
+            depositLevel: candidate.level
+          };
+          sfx.potionUse && sfx.potionUse();
+          return [
+            `Grandma: Welcome to the Pokémon Daycare!`,
+            `Grandma: We'll take wonderful care of ${candidate.name}!`,
+            `Grandma: Go explore the countryside—${candidate.name} will gain experience points peacefully while you walk!`
+          ];
+        } else {
+          const m = player.daycare.mon;
+          const levelsGained = m.level - player.daycare.depositLevel;
+          if (player.team.length >= 6) {
+            return [
+              `Grandma: ${m.name} is doing fantastic! It grew +${levelsGained} level(s)!`,
+              "Grandma: But your party is full! Come back when you have an open slot in your party to pick it up."
+            ];
+          }
+          const retrieved = player.daycare.mon;
+          player.team.push(retrieved);
+          player.daycare = { mon: null, depositSteps: 0, depositLevel: 0 };
+          sfx.levelUp && sfx.levelUp();
+          return [
+            `Grandma: Welcome back! ${retrieved.name} missed you so much!`,
+            `Grandma: It grew +${levelsGained} level(s) during its cozy stay with us!`,
+            `Grandma: ${retrieved.name} was returned to your party! Come visit us anytime!`
+          ];
+        }
+      }
+    },
+    {
+      name: "DAYCARE GRANDPA",
+      x: 10,
+      y: 4,
+      palette: { body: "#8c6b45", hair: "#e8ded1" },
+      dialogue: [],
+      getDialogue: () => {
+        if (!player.daycare || !player.daycare.mon) {
+          return [
+            "Grandpa: Ho ho ho! The air out here in the countryside is so fresh and restorative!",
+            "Grandpa: When you leave a Pokémon with my wife, it plays happily in our meadow."
+          ];
+        }
+        if (player.daycare.depositSteps >= 100 && !player.daycare.eggOffered && !player.egg) {
+          if (player.team.length >= 6) {
+            return [
+              "Grandpa: Ah, Red! What a surprise! We found a Pokémon Egg out in the meadow!",
+              "Grandpa: But your party has no room for an Egg! Free up a slot in your party and talk to me right away!"
+            ];
+          }
+          player.daycare.eggOffered = true;
+          player.egg = {
+            isEgg: true,
+            name: "MYSTERY EGG",
+            speciesId: 133,
+            speciesName: "EEVEE",
+            stepsLeft: 180,
+            totalSteps: 180
+          };
+          player.team.push(player.egg);
+          sfx.badgeFanfare && sfx.badgeFanfare();
+          return [
+            "Grandpa: Ah, Red! You won't believe what happened out in the grassy meadow!",
+            "Grandpa: While your Pokémon was playing, we found a warm, mysterious Pokémon Egg!",
+            "Grandpa: We don't know where it came from, but it is thriving! Please take it and raise it with love!",
+            "Player received the warm MYSTERY EGG! Walk steps to incubate and hatch it!"
+          ];
+        }
+        return [
+          `Grandpa: Your ${player.daycare.mon.name} is playing joyfully in the meadow!`,
+          `Grandpa: It has romped through ${player.daycare.depositSteps} steps of happy exercise!`
+        ];
+      }
+    }
+  ],
+  warps: [
+    { fromX: 7, fromY: 9, targetMap: "CERULEAN_CITY", targetX: 10, targetY: 9 }
+  ]
+};
+
 const STARTER_OPTIONS = {
   1: {
     id: 4,
@@ -1872,7 +1998,11 @@ const STATE = {
   LEVEL_UP_MODAL: "LEVEL_UP_MODAL",
   GAME_COMPLETE: "GAME_COMPLETE",
   PARTNER_CARE: "PARTNER_CARE",
-  WAGON_TRAVEL: "WAGON_TRAVEL"
+  WAGON_TRAVEL: "WAGON_TRAVEL",
+  NICKNAME: "NICKNAME",
+  MOVE_RELEARNER: "MOVE_RELEARNER",
+  JUKEBOX: "JUKEBOX",
+  EGG_HATCH: "EGG_HATCH"
 };
 
 let gameState = STATE.TITLE; // landing page first
@@ -1897,6 +2027,7 @@ const player = {
   hasBicycle: false,
   isBiking: false,
   hasOldRod: false,
+  hasGoodRod: false,
   hasSurfboard: false,
   hasPruningShears: true,
   teaBuffSteps: 0,
@@ -1912,6 +2043,17 @@ const player = {
   found: {},
   berries: 3,
   steps: 0,
+  trainerId: 49201,
+  playtime: 0,
+  stats: { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 },
+  soilPatches: {
+    "PALLET_TOWN_9_6": { state: "EMPTY", steps: 0 },
+    "VIRIDIAN_CITY_5_5": { state: "EMPTY", steps: 0 },
+    "PEWTER_CITY_9_5": { state: "EMPTY", steps: 0 },
+    "CERULEAN_CITY_4_3": { state: "EMPTY", steps: 0 }
+  },
+  daycare: { mon: null, depositSteps: 0, depositLevel: 0, eggOffered: false },
+  egg: null,
   pc: [],
   beat: {},
   storyFlags: { started: false, starterChosen: false }
@@ -2019,39 +2161,1208 @@ document.querySelectorAll(".touch-btn").forEach(el => {
   el.addEventListener("pointercancel", handleUp);
 });
 
+function closeLevelUpModal() { gameState = STATE.OVERWORLD; }
+
+// =============================================================================
+// TOWN MAP SYSTEM (WITH EXACT CHARACTER PINPOINT & LANDMARK DETAILS)
+// =============================================================================
+const KANTO_MAP_POINTS = [
+  { key: "PALLET_TOWN", name: "PALLET TOWN", x: 190, y: 350, type: "TOWN", badge: "", desc: "A pure white canvas. Shades of your journey await! Home of Red & Oak's Lab." },
+  { key: "ROUTE_1", name: "ROUTE 1", x: 190, y: 300, type: "ROUTE", badge: "", desc: "A gentle grassy path connecting Pallet Town to Viridian City." },
+  { key: "VIRIDIAN_CITY", name: "VIRIDIAN CITY", x: 190, y: 250, type: "CITY", badge: "", desc: "The eternally green paradise! Features Pokémon Center & Mart." },
+  { key: "VIRIDIAN_FOREST", name: "VIRIDIAN FOREST", x: 190, y: 190, type: "FOREST", badge: "", desc: "A deep, natural maze of towering trees, lush moss, and bug Pokémon." },
+  { key: "PEWTER_CITY", name: "PEWTER CITY", x: 190, y: 130, type: "CITY", badge: "BOULDER", desc: "A stone-gray city resting on rocky ground! Brock's Gym & Boulder Badge." },
+  { key: "ROUTE_3", name: "ROUTE 3", x: 270, y: 130, type: "ROUTE", badge: "", desc: "A windswept rocky foothills trail leading to the mouth of Mt. Moon." },
+  { key: "MT_MOON", name: "MT. MOON", x: 350, y: 130, type: "CAVE", badge: "", desc: "A mystical cavern famous for fallen meteorites, fossils, and Clefairy." },
+  { key: "CERULEAN_CITY", name: "CERULEAN CITY", x: 440, y: 130, type: "CITY", badge: "CASCADE", desc: "A floral water metropolis encircled by canals! Misty's Gym & Cascade Badge." },
+  { key: "ROUTE_24", name: "ROUTE 24 (NUGGET BRIDGE)", x: 440, y: 70, type: "ROUTE", badge: "", desc: "The renowned golden bridge of 5 trainers leading to Bill's Sea Cottage." },
+  { key: "BILLS_COTTAGE", name: "BILL'S SEA COTTAGE", x: 530, y: 70, type: "LANDMARK", badge: "", desc: "Cozy oceanside laboratory of Bill, the Pokémon storage pioneer." },
+  { key: "DAYCARE", name: "POKÉMON DAYCARE", x: 440, y: 200, type: "LANDMARK", badge: "", desc: "Peaceful country nursery where Pokémon frolic in the meadow and hatch eggs." },
+  { key: "VERMILION_CITY", name: "VERMILION CITY", x: 440, y: 270, type: "PORT", badge: "THUNDER", desc: "The Port of Exquisite Sunsets! Lt. Surge's Gym, Thunder Badge, and S.S. Anne." },
+  { key: "SS_ANNE", name: "S.S. ANNE", x: 440, y: 340, type: "PORT", badge: "", desc: "World-class luxury ocean cruise liner moored at Vermilion Pier." }
+];
+
+const MAP_PARENT_LOOKUP = {
+  "REDS_HOUSE": "PALLET_TOWN",
+  "PALLET_TOWN": "PALLET_TOWN",
+  "ROUTE_1": "ROUTE_1",
+  "VIRIDIAN_CITY": "VIRIDIAN_CITY",
+  "VIRIDIAN_FOREST": "VIRIDIAN_FOREST",
+  "PEWTER_CITY": "PEWTER_CITY",
+  "ROUTE_3": "ROUTE_3",
+  "MT_MOON": "MT_MOON",
+  "CERULEAN_CITY": "CERULEAN_CITY",
+  "ROUTE_24": "ROUTE_24",
+  "BILLS_COTTAGE": "BILLS_COTTAGE",
+  "DAYCARE": "DAYCARE",
+  "VERMILION_CITY": "VERMILION_CITY",
+  "SS_ANNE": "SS_ANNE"
+};
+
+const townMapState = {
+  selectedIdx: 0,
+  returnState: STATE.OVERWORLD,
+  pulse: 0
+};
+
+function getPlayerMapPoint() {
+  const parentKey = MAP_PARENT_LOOKUP[currentMapKey] || "PALLET_TOWN";
+  const found = KANTO_MAP_POINTS.find(p => p.key === parentKey);
+  return found || KANTO_MAP_POINTS[0];
+}
+
+function openTownMap(returnState = STATE.OVERWORLD) {
+  townMapState.returnState = returnState;
+  const curPoint = getPlayerMapPoint();
+  const idx = KANTO_MAP_POINTS.findIndex(p => p.key === curPoint.key);
+  townMapState.selectedIdx = idx >= 0 ? idx : 0;
+  townMapState.pulse = 0;
+  gameState = STATE.TOWN_MAP;
+  sfx.textBlip && sfx.textBlip();
+}
+
+function handleTownMapInput(key) {
+  const total = KANTO_MAP_POINTS.length;
+  if (key === "ArrowUp" || key === "w" || key === "W") {
+    townMapState.selectedIdx = (townMapState.selectedIdx - 1 + total) % total;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s" || key === "S") {
+    townMapState.selectedIdx = (townMapState.selectedIdx + 1) % total;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowLeft" || key === "a" || key === "A") {
+    townMapState.selectedIdx = (townMapState.selectedIdx - 1 + total) % total;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowRight" || key === "d" || key === "D") {
+    townMapState.selectedIdx = (townMapState.selectedIdx + 1) % total;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "x" || key === "X" || key === "Escape" || key === "z" || key === "Z" || key === "Enter" || key === "m" || key === "M") {
+    gameState = townMapState.returnState || STATE.OVERWORLD;
+    sfx.textBlip && sfx.textBlip();
+  }
+}
+
+function renderTownMap() {
+  renderOverworld();
+  townMapState.pulse = (townMapState.pulse + 0.08) % (Math.PI * 2);
+
+  // Dark overlay
+  ctx.fillStyle = "rgba(16, 12, 20, 0.82)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mx = 40, my = 20, mw = 640, mh = 440;
+  // Frame
+  ctx.fillStyle = "#3a251e";
+  ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+  ctx.fillStyle = "#eddcc6"; // Parchment background
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#8b5a36";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  // Sea water blocks
+  ctx.fillStyle = "#93c5de";
+  ctx.fillRect(mx + 6, my + 6, 140, mh - 12); // West sea
+  ctx.fillRect(mx + 6, my + 280, mw - 12, mh - 286); // South sea
+  ctx.fillRect(mx + 490, my + 6, 144, 180); // Northeast sea
+
+  // Forest canopy block
+  ctx.fillStyle = "#7ca868";
+  ctx.fillRect(160, 165, 60, 50);
+
+  // Mountain block (Mt Moon)
+  ctx.fillStyle = "#a88e76";
+  ctx.beginPath();
+  ctx.moveTo(320, 150); ctx.lineTo(350, 110); ctx.lineTo(380, 150); ctx.closePath(); ctx.fill();
+
+  // Route connections
+  ctx.strokeStyle = "#c85848";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  // Pallet -> Route 1 -> Viridian -> Forest -> Pewter
+  ctx.moveTo(190, 350); ctx.lineTo(190, 130);
+  // Pewter -> Route 3 -> Mt Moon -> Cerulean
+  ctx.lineTo(440, 130);
+  // Cerulean -> Route 24 -> Bill's
+  ctx.moveTo(440, 130); ctx.lineTo(440, 70); ctx.lineTo(530, 70);
+  // Cerulean -> Daycare -> Vermilion -> S.S. Anne
+  ctx.moveTo(440, 130); ctx.lineTo(440, 340);
+  ctx.stroke();
+
+  // Landmarks & towns
+  KANTO_MAP_POINTS.forEach((pt, idx) => {
+    const isSelected = townMapState.selectedIdx === idx;
+    const isCurrent = getPlayerMapPoint().key === pt.key;
+
+    // Node icon
+    let nodeColor = "#d6453d"; // Route
+    let nodeSize = 8;
+    if (pt.type === "CITY" || pt.type === "TOWN") {
+      nodeColor = pt.type === "CITY" ? "#2b6cb0" : "#38a169";
+      nodeSize = 12;
+    } else if (pt.type === "PORT") {
+      nodeColor = "#dd6b20";
+      nodeSize = 11;
+    } else if (pt.type === "CAVE") {
+      nodeColor = "#744210";
+      nodeSize = 10;
+    }
+
+    ctx.fillStyle = nodeColor;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, nodeSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Node label
+    ctx.fillStyle = "#2d231b";
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.textAlign = "center";
+    if (pt.type === "CITY" || pt.type === "TOWN" || pt.type === "PORT") {
+      ctx.fillText(pt.name, pt.x, pt.y - 14);
+    }
+
+    // Selected cursor highlight
+    if (isSelected) {
+      const ring = 16 + Math.sin(townMapState.pulse * 2) * 3;
+      ctx.strokeStyle = "#e53e3e";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, ring, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // EXACT CHARACTER LOCATION PINPOINT
+    if (isCurrent) {
+      const pulseRing = 20 + Math.sin(townMapState.pulse * 3) * 4;
+      ctx.strokeStyle = "#ffb300";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, pulseRing, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Red head icon / marker
+      ctx.fillStyle = "#bd3832";
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 10px 'Courier New'";
+      ctx.fillText("R", pt.x, pt.y + 3);
+
+      // Flashing "YOU ARE HERE" beacon
+      const by = pt.y - 28 - Math.abs(Math.sin(townMapState.pulse * 2)) * 4;
+      ctx.fillStyle = "#e53e3e";
+      ctx.fillRect(pt.x - 48, by, 96, 16);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(pt.x - 48, by, 96, 16);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 10px 'Courier New'";
+      ctx.fillText("★ YOU ARE HERE ★", pt.x, by + 12);
+    }
+  });
+
+  // Top Title Banner
+  ctx.fillStyle = "#8b5a36";
+  ctx.fillRect(mx + 10, my + 8, mw - 20, 32);
+  ctx.fillStyle = "#fff4e6";
+  ctx.font = "bold 16px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillText("🗺️ REGIONAL TOWN MAP OF KANTO 🗺️", mx + mw / 2, my + 30);
+
+  // Bottom Landmark Info Card
+  const selPoint = KANTO_MAP_POINTS[townMapState.selectedIdx];
+  const isPlayerHere = getPlayerMapPoint().key === selPoint.key;
+  const cardY = my + mh - 90;
+
+  ctx.fillStyle = "#34221b";
+  ctx.fillRect(mx + 10, cardY, mw - 20, 80);
+  ctx.strokeStyle = "#d4a373";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(mx + 10, cardY, mw - 20, 80);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 15px 'Courier New'";
+  ctx.fillText(`📍 ${selPoint.name}  [${selPoint.type}]`, mx + 24, cardY + 22);
+
+  if (isPlayerHere) {
+    ctx.fillStyle = "#81c784";
+    ctx.font = "bold 12px 'Courier New'";
+    ctx.fillText(`● EXACT POSITION: ${currentMap.name} (Grid: ${player.gridX}, ${player.gridY})`, mx + 24, cardY + 40);
+  } else {
+    ctx.fillStyle = "#e0cfb8";
+    ctx.font = "12px 'Courier New'";
+    ctx.fillText(selPoint.desc, mx + 24, cardY + 40);
+  }
+
+  ctx.fillStyle = "#b89e88";
+  ctx.font = "11px 'Courier New'";
+  ctx.fillText("◄/►/▲/▼: Pan Landmarks  •  [Z/X/M]: Close Town Map", mx + 24, cardY + 64);
+}
+
+// =============================================================================
+// INTERACTIVE FISHING SYSTEM & GOOD ROD
+// =============================================================================
+const fishingGame = {
+  timer: 0,
+  stage: "WAIT", // "WAIT", "BITE", "HOOKED", "ESCAPED"
+  biteFrame: 60,
+  window: 80,
+  rod: "OLD"
+};
+
 function startFishing() {
-  if (!player.hasOldRod) {
+  if (!player.hasOldRod && !player.hasGoodRod) {
     dialogue.speaker = "FISHING";
-    dialogue.queue = ["A fishing rod would let you hook wild water Pokémon here!"];
+    dialogue.queue = [
+      "The shimmering water ripples peacefully.",
+      "A fishing rod would let you hook wild water Pokémon here!"
+    ];
     setDialogueText(dialogue.queue[0]);
     gameState = STATE.DIALOGUE;
     dialogue.anim = 0;
-    sfx.textBlip();
+    sfx.textBlip && sfx.textBlip();
     return;
   }
-  sfx.fishingBite();
-  showMapBanner("OH! A BITE!");
-  setTimeout(() => {
-    const waterMons = [
-      { id: 129, name: "MAGIKARP", level: 5 + Math.floor(Math.random() * 5), hp: 20, maxHp: 20, moves: [{ name: "SPLASH", power: 0, maxPp: 40, pp: 40 }] },
-      { id: 60, name: "POLIWAG", level: 8 + Math.floor(Math.random() * 5), hp: 25, maxHp: 25, moves: [{ name: "BUBBLE", power: 40, maxPp: 30, pp: 30 }] },
-      { id: 90, name: "SHELLDER", level: 9 + Math.floor(Math.random() * 5), hp: 26, maxHp: 26, moves: [{ name: "TACKLE", power: 40, maxPp: 35, pp: 35 }] }
-    ];
-    const picked = waterMons[Math.floor(Math.random() * waterMons.length)];
-    const chosen = SPECIES_DB[picked.id] ? JSON.parse(JSON.stringify(SPECIES_DB[picked.id])) : picked;
-    chosen.level = picked.level;
-    chosen.maxHp = picked.maxHp;
-    chosen.hp = picked.hp;
-    chosen.moves = picked.moves;
-    battle.enemy = chosen;
-    startBattleTransition();
-  }, 400);
+  fishingGame.rod = player.hasGoodRod ? "GOOD" : "OLD";
+  fishingGame.timer = 0;
+  fishingGame.biteFrame = 50 + Math.floor(Math.random() * 50);
+  fishingGame.window = 75;
+  fishingGame.stage = "WAIT";
+  gameState = STATE.FISHING;
+  sfx.playTone && sfx.playTone(400, "sine", 0.08, 600, 0.08);
 }
 
-function handleFishingInput(key) {}
-function handleTownMapInput(key) {}
-function closeLevelUpModal() { gameState = STATE.OVERWORLD; }
-function openTownMap(returnState) { showMapBanner("TOWN MAP: PALLET • VIRIDIAN • PEWTER • CERULEAN • VERMILION"); sfx.textBlip(); }
+function handleFishingInput(key) {
+  if (key === "z" || key === "Z" || key === "Enter" || key === " ") {
+    if (fishingGame.stage === "BITE") {
+      fishingGame.stage = "HOOKED";
+      player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
+      player.stats.fished = (player.stats.fished || 0) + 1;
+      sfx.badgeFanfare && sfx.badgeFanfare();
+      setTimeout(() => {
+        let waterPool = [];
+        if (fishingGame.rod === "GOOD") {
+          waterPool = [
+            { id: 120, name: "STARYU", level: 16, hp: 44, maxHp: 44, moves: [{ name: "WATER GUN", power: 15, maxPp: 25, pp: 25 }, { name: "BUBBLEBEAM", power: 20, maxPp: 20, pp: 20 }] },
+            { id: 90, name: "SHELLDER", level: 17, hp: 46, maxHp: 46, moves: [{ name: "TACKLE", power: 10, maxPp: 35, pp: 35 }, { name: "BUBBLEBEAM", power: 20, maxPp: 20, pp: 20 }] },
+            { id: 60, name: "POLIWAG", level: 15, hp: 42, maxHp: 42, moves: [{ name: "BUBBLE", power: 12, maxPp: 30, pp: 30 }, { name: "WATER GUN", power: 15, maxPp: 25, pp: 25 }] },
+            { id: 130, name: "GYARADOS", level: 20, hp: 60, maxHp: 60, moves: [{ name: "BITE", power: 18, maxPp: 25, pp: 25 }, { name: "HYDRO PUMP", power: 28, maxPp: 5, pp: 5 }] },
+            { id: 129, name: "MAGIKARP", level: 12, hp: 28, maxHp: 28, moves: [{ name: "TACKLE", power: 7, maxPp: 35, pp: 35 }] }
+          ];
+        } else {
+          waterPool = [
+            { id: 129, name: "MAGIKARP", level: 7, hp: 22, maxHp: 22, moves: [{ name: "SPLASH", power: 0, maxPp: 40, pp: 40 }, { name: "TACKLE", power: 7, maxPp: 35, pp: 35 }] },
+            { id: 60, name: "POLIWAG", level: 9, hp: 28, maxHp: 28, moves: [{ name: "BUBBLE", power: 10, maxPp: 30, pp: 30 }, { name: "WATER GUN", power: 14, maxPp: 25, pp: 25 }] },
+            { id: 90, name: "SHELLDER", level: 10, hp: 30, maxHp: 30, moves: [{ name: "TACKLE", power: 8, maxPp: 35, pp: 35 }] }
+          ];
+        }
+        const picked = waterPool[Math.floor(Math.random() * waterPool.length)];
+        const chosen = SPECIES_DB[picked.id] ? JSON.parse(JSON.stringify(SPECIES_DB[picked.id])) : picked;
+        chosen.level = picked.level;
+        chosen.maxHp = picked.maxHp;
+        chosen.hp = picked.hp;
+        chosen.moves = picked.moves;
+        ensurePP(chosen);
+        battle.enemy = chosen;
+        startBattleTransition();
+      }, 600);
+    } else if (fishingGame.stage === "WAIT") {
+      fishingGame.stage = "ESCAPED";
+      sfx.hit && sfx.hit();
+      setTimeout(() => { gameState = STATE.OVERWORLD; }, 700);
+    }
+  } else if (key === "x" || key === "X" || key === "Escape") {
+    gameState = STATE.OVERWORLD;
+  }
+}
+
+function renderFishing() {
+  renderOverworld();
+  fishingGame.timer++;
+
+  ctx.fillStyle = "rgba(10, 20, 30, 0.45)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const bobberX = player.x + 24 + (player.facing === "LEFT" ? -44 : player.facing === "RIGHT" ? 44 : 0);
+  const bobberY = player.y + 24 + (player.facing === "UP" ? -44 : player.facing === "DOWN" ? 44 : 0);
+
+  // Ripples
+  const rProg = (fishingGame.timer * 0.08) % 1;
+  ctx.strokeStyle = `rgba(255,255,255,${(1 - rProg) * 0.7})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(bobberX, bobberY, 6 + rProg * 18, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Red/white fishing bobber
+  ctx.fillStyle = "#e53e3e";
+  ctx.beginPath(); ctx.arc(bobberX, bobberY - 2, 6, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath(); ctx.arc(bobberX, bobberY - 2, 6, 0, Math.PI); ctx.fill();
+
+  // Bite state logic
+  if (fishingGame.stage === "WAIT" && fishingGame.timer >= fishingGame.biteFrame) {
+    fishingGame.stage = "BITE";
+    fishingGame.timer = 0;
+    sfx.fishingBite && sfx.fishingBite();
+  } else if (fishingGame.stage === "BITE" && fishingGame.timer >= fishingGame.window) {
+    fishingGame.stage = "ESCAPED";
+    setTimeout(() => { gameState = STATE.OVERWORLD; }, 700);
+  }
+
+  // Floating prompt banner
+  const bx = 160, by = 60, bw = 400, bh = 70;
+  ctx.fillStyle = "#221a24";
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = "#ffcb78";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(bx, by, bw, bh);
+
+  ctx.textAlign = "center";
+  if (fishingGame.stage === "WAIT") {
+    ctx.fillStyle = "#fff4e6";
+    ctx.font = "bold 16px 'Courier New'";
+    ctx.fillText(`Waiting patiently with ${fishingGame.rod === "GOOD" ? "Good Rod" : "Old Rod"}...`, bx + bw / 2, by + 30);
+    const dots = ".".repeat(1 + Math.floor(fishingGame.timer / 15) % 4);
+    ctx.fillStyle = "#ffcb78";
+    ctx.font = "bold 20px 'Courier New'";
+    ctx.fillText(dots, bx + bw / 2, by + 54);
+  } else if (fishingGame.stage === "BITE") {
+    const flash = Math.floor(fishingGame.timer / 6) % 2 === 0;
+    ctx.fillStyle = flash ? "#ff1744" : "#ffea00";
+    ctx.font = "bold 22px 'Courier New'";
+    ctx.fillText("❗ OH! A BITE! TAP [Z] NOW! ❗", bx + bw / 2, by + 32);
+
+    // Countdown bar
+    const barW = (1 - (fishingGame.timer / fishingGame.window)) * (bw - 40);
+    ctx.fillStyle = "#4caf50";
+    ctx.fillRect(bx + 20, by + 46, barW, 10);
+  } else if (fishingGame.stage === "HOOKED") {
+    ctx.fillStyle = "#69f0ae";
+    ctx.font = "bold 20px 'Courier New'";
+    ctx.fillText("✨ HOOKED A LIVELY POKÉMON! ✨", bx + bw / 2, by + 42);
+  } else if (fishingGame.stage === "ESCAPED") {
+    ctx.fillStyle = "#ff5252";
+    ctx.font = "bold 18px 'Courier New'";
+    ctx.fillText("The wild Pokémon slipped away...", bx + bw / 2, by + 42);
+  }
+}
+
+// =============================================================================
+// BERRY SOIL GARDENING & LOAM PLANTING
+// =============================================================================
+const SOIL_PATCHES = {
+  "PALLET_TOWN_9_6": { map: "PALLET_TOWN", x: 9, y: 6 },
+  "VIRIDIAN_CITY_5_5": { map: "VIRIDIAN_CITY", x: 5, y: 5 },
+  "PEWTER_CITY_9_5": { map: "PEWTER_CITY", x: 9, y: 5 },
+  "CERULEAN_CITY_4_3": { map: "CERULEAN_CITY", x: 4, y: 3 }
+};
+
+function getSoilPatch(key) {
+  if (!player.soilPatches) player.soilPatches = {};
+  if (!player.soilPatches[key]) {
+    player.soilPatches[key] = { state: "EMPTY", steps: 0 };
+  }
+  return player.soilPatches[key];
+}
+
+function interactSoilPatch(key) {
+  const p = getSoilPatch(key);
+  if (p.state === "EMPTY") {
+    if ((player.berries || 0) > 0) {
+      player.berries--;
+      p.state = "PLANTED";
+      p.steps = 0;
+      sfx.potionUse && sfx.potionUse();
+      dialogue.speaker = "FERTILE SOIL";
+      dialogue.queue = [
+        "It's soft, fertile loamy soil!",
+        "Red planted a sweet wild Berry seed into the warm earth!",
+        "Walk and explore on your journey to let it sprout and bear fruit!"
+      ];
+      setDialogueText(dialogue.queue[0]);
+      gameState = STATE.DIALOGUE;
+      dialogue.anim = 0;
+    } else {
+      dialogue.speaker = "FERTILE SOIL";
+      dialogue.queue = [
+        "It's rich, soft loamy soil perfect for cultivating berries!",
+        "You don't have any Berries to plant right now. Forage from trees or buy some at the Mart!"
+      ];
+      setDialogueText(dialogue.queue[0]);
+      gameState = STATE.DIALOGUE;
+      dialogue.anim = 0;
+    }
+  } else if (p.state === "PLANTED" && p.steps < 50) {
+    dialogue.speaker = "BERRY SPROUT";
+    dialogue.queue = [
+      "A tiny green sprout has emerged from the soft soil!",
+      `Growth progress: ${p.steps} / 120 steps.`
+    ];
+    setDialogueText(dialogue.queue[0]);
+    gameState = STATE.DIALOGUE;
+    dialogue.anim = 0;
+  } else if (p.steps < 120) {
+    dialogue.speaker = "BERRY BLOSSOM";
+    dialogue.queue = [
+      "The berry plant is bursting with fragrant pink blossoms!",
+      `Almost ready! Growth progress: ${p.steps} / 120 steps.`
+    ];
+    setDialogueText(dialogue.queue[0]);
+    gameState = STATE.DIALOGUE;
+    dialogue.anim = 0;
+  } else {
+    const harvestCount = 3 + Math.floor(Math.random() * 3);
+    player.berries = (player.berries || 0) + harvestCount;
+    p.state = "EMPTY";
+    p.steps = 0;
+    sfx.badgeFanfare && sfx.badgeFanfare();
+    showMapBanner(`HARVESTED ${harvestCount} SWEET BERRIES! 🍓`);
+    dialogue.speaker = "BERRY HARVEST";
+    dialogue.queue = [
+      `The berry bush was ripe and heavy with juicy fruit!`,
+      `Red harvested ${harvestCount} fresh Oran Berries! Added to Item Bag!`
+    ];
+    setDialogueText(dialogue.queue[0]);
+    gameState = STATE.DIALOGUE;
+    dialogue.anim = 0;
+  }
+}
+
+function drawSoilPatches() {
+  for (const k in SOIL_PATCHES) {
+    const patch = SOIL_PATCHES[k];
+    if (patch.map !== currentMapKey) continue;
+    const p = getSoilPatch(k);
+    const px = patch.x * TILE_SIZE, py = patch.y * TILE_SIZE;
+
+    // Rich dark tilled loam soil patch
+    ctx.fillStyle = "#3a2214";
+    ctx.fillRect(px + 4, py + 10, 40, 28);
+    ctx.strokeStyle = "#5a3a25";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px + 4, py + 10, 40, 28);
+
+    if (p.state === "EMPTY") {
+      ctx.fillStyle = "#27150c";
+      ctx.fillRect(px + 10, py + 18, 28, 4);
+      ctx.fillRect(px + 10, py + 26, 28, 4);
+    } else if (p.steps < 50) {
+      // Tiny green sprout
+      ctx.fillStyle = "#4caf50";
+      ctx.fillRect(px + 22, py + 18, 4, 10);
+      ctx.beginPath(); ctx.ellipse(px + 18, py + 20, 5, 3, -0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(px + 28, py + 20, 5, 3, 0.4, 0, Math.PI * 2); ctx.fill();
+    } else if (p.steps < 120) {
+      // Bush with pink flowers
+      ctx.fillStyle = "#2e7d32";
+      ctx.beginPath(); ctx.arc(px + 24, py + 22, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#f48fb1";
+      ctx.beginPath(); ctx.arc(px + 18, py + 18, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 28, py + 20, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 22, py + 26, 3, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // Full ripe berry bush
+      ctx.fillStyle = "#1b5e20";
+      ctx.beginPath(); ctx.arc(px + 24, py + 20, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#e53935"; // Red berries
+      ctx.beginPath(); ctx.arc(px + 16, py + 16, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 28, py + 16, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + 24, py + 24, 4, 0, Math.PI * 2); ctx.fill();
+      // Sparkle
+      const sp = Math.abs(Math.sin(T * 0.1));
+      ctx.fillStyle = `rgba(255, 235, 59, ${sp})`;
+      ctx.fillText("✦", px + 14, py + 10);
+    }
+  }
+}
+
+// =============================================================================
+// POKÉMON NICKNAMING SCREEN
+// =============================================================================
+const nicknameState = {
+  mon: null,
+  name: "",
+  row: 0,
+  col: 0,
+  returnState: STATE.OVERWORLD,
+  promptActive: false,
+  promptChoice: 0
+};
+
+const NICK_KEYBOARD = [
+  ["A", "B", "C", "D", "E", "F", "G"],
+  ["H", "I", "J", "K", "L", "M", "N"],
+  ["O", "P", "Q", "R", "S", "T", "U"],
+  ["V", "W", "X", "Y", "Z", " ", "DEL"],
+  ["DONE", "DONE", "DONE", "BACK", "BACK", "BACK", "BACK"]
+];
+
+function promptNickname(mon, returnState = STATE.OVERWORLD) {
+  nicknameState.mon = mon;
+  nicknameState.name = "";
+  nicknameState.row = 0;
+  nicknameState.col = 0;
+  nicknameState.returnState = returnState;
+  nicknameState.promptActive = true;
+  nicknameState.promptChoice = 0;
+  gameState = STATE.NICKNAME;
+  sfx.textBlip && sfx.textBlip();
+}
+
+function handleNicknameInput(key) {
+  if (nicknameState.promptActive) {
+    if (key === "ArrowLeft" || key === "ArrowRight" || key === "a" || key === "d") {
+      nicknameState.promptChoice = 1 - nicknameState.promptChoice;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "z" || key === "Z" || key === "Enter") {
+      if (nicknameState.promptChoice === 0) {
+        nicknameState.promptActive = false;
+        sfx.textBlip && sfx.textBlip();
+      } else {
+        gameState = nicknameState.returnState || STATE.OVERWORLD;
+        music.play && music.play();
+      }
+    } else if (key === "x" || key === "X" || key === "Escape") {
+      gameState = nicknameState.returnState || STATE.OVERWORLD;
+      music.play && music.play();
+    }
+    return;
+  }
+
+  const rows = NICK_KEYBOARD.length;
+  const cols = NICK_KEYBOARD[0].length;
+  if (key === "ArrowUp" || key === "w") {
+    nicknameState.row = (nicknameState.row - 1 + rows) % rows;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s") {
+    nicknameState.row = (nicknameState.row + 1) % rows;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowLeft" || key === "a") {
+    nicknameState.col = (nicknameState.col - 1 + cols) % cols;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowRight" || key === "d") {
+    nicknameState.col = (nicknameState.col + 1) % cols;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "Backspace") {
+    nicknameState.name = nicknameState.name.slice(0, -1);
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "z" || key === "Z" || key === "Enter") {
+    const char = NICK_KEYBOARD[nicknameState.row][nicknameState.col];
+    if (char === "DEL") {
+      nicknameState.name = nicknameState.name.slice(0, -1);
+      sfx.textBlip && sfx.textBlip();
+    } else if (char === "DONE") {
+      if (nicknameState.name.trim().length > 0) {
+        nicknameState.mon.nickname = nicknameState.name.trim();
+        showMapBanner(`NICKNAME SET: ${nicknameState.mon.nickname}!`);
+      }
+      gameState = nicknameState.returnState || STATE.OVERWORLD;
+      music.play && music.play();
+      sfx.levelUp && sfx.levelUp();
+    } else if (char === "BACK") {
+      gameState = nicknameState.returnState || STATE.OVERWORLD;
+      music.play && music.play();
+    } else {
+      if (nicknameState.name.length < 10) {
+        nicknameState.name += char;
+        sfx.textBlip && sfx.textBlip();
+      }
+    }
+  } else if (key === "x" || key === "X" || key === "Escape") {
+    gameState = nicknameState.returnState || STATE.OVERWORLD;
+    music.play && music.play();
+  } else if (/^[a-zA-Z ]$/.test(key) && nicknameState.name.length < 10) {
+    nicknameState.name += key.toUpperCase();
+    sfx.textBlip && sfx.textBlip();
+  }
+}
+
+function renderNicknameScreen() {
+  ctx.fillStyle = "#1e1622";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mon = nicknameState.mon;
+  if (!mon) return;
+
+  if (nicknameState.promptActive) {
+    const px = 120, py = 140, pw = 480, ph = 200;
+    ctx.fillStyle = "#2c1c28";
+    ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = "#e8a855";
+    ctx.lineWidth = 3.5;
+    ctx.strokeRect(px, py, pw, ph);
+
+    ctx.fillStyle = "#ffcb78";
+    ctx.font = "bold 20px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText(`Captured ${mon.name}!`, px + pw / 2, py + 48);
+    ctx.fillStyle = "#f5d4a6";
+    ctx.font = "16px 'Courier New'";
+    ctx.fillText("Do you want to give a nickname to this Pokémon?", px + pw / 2, py + 86);
+
+    const yesSel = nicknameState.promptChoice === 0;
+    ctx.fillStyle = yesSel ? "#e53935" : "#442b3c";
+    ctx.fillRect(px + 90, py + 125, 120, 42);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 16px 'Courier New'";
+    ctx.fillText(yesSel ? "▶ YES" : "  YES", px + 150, py + 152);
+
+    const noSel = nicknameState.promptChoice === 1;
+    ctx.fillStyle = noSel ? "#e53935" : "#442b3c";
+    ctx.fillRect(px + 270, py + 125, 120, 42);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 16px 'Courier New'";
+    ctx.fillText(noSel ? "▶ NO" : "  NO", px + 330, py + 152);
+    return;
+  }
+
+  // Keyboard screen
+  const mx = 60, my = 30, mw = 600, mh = 420;
+  ctx.fillStyle = "#2b1c28";
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  // Left column: Mon Preview
+  const previewX = mx + 30, previewY = my + 40;
+  ctx.fillStyle = "#1e1420";
+  ctx.fillRect(previewX, previewY, 130, 130);
+  ctx.strokeStyle = "#593e4f";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(previewX, previewY, 130, 130);
+  if (mon.spriteKey) {
+    drawGenSprite(mon.spriteKey, previewX - 30, previewY - 30, 192, 192);
+  }
+
+  // Name Input Box
+  const inX = mx + 180, inY = my + 40, inW = 380, inH = 50;
+  ctx.fillStyle = "#fdf9f0";
+  ctx.fillRect(inX, inY, inW, inH);
+  ctx.strokeStyle = "#ffcb78";
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(inX, inY, inW, inH);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#241824";
+  ctx.font = "bold 26px 'Courier New'";
+  const dispName = nicknameState.name || mon.name;
+  ctx.fillText(dispName, inX + 20, inY + 36);
+
+  // Caret
+  if (Math.floor(Date.now() / 350) % 2 === 0) {
+    const textW = ctx.measureText(nicknameState.name).width;
+    ctx.fillRect(inX + 22 + textW, inY + 12, 3, 28);
+  }
+
+  // Keypad
+  const kx = mx + 120, ky = my + 130;
+  NICK_KEYBOARD.forEach((row, r) => {
+    row.forEach((keyChar, c) => {
+      const isSel = nicknameState.row === r && nicknameState.col === c;
+      const isSpecial = keyChar === "DONE" || keyChar === "BACK" || keyChar === "DEL";
+      const kw = isSpecial ? 65 : 44;
+      const kh = 38;
+      const itemX = kx + c * 52;
+      const itemY = ky + r * 46;
+
+      ctx.fillStyle = isSel ? "#e53e3e" : isSpecial ? "#4a3243" : "#382434";
+      ctx.fillRect(itemX, itemY, kw, kh);
+      ctx.strokeStyle = isSel ? "#ffea00" : "#634758";
+      ctx.lineWidth = isSel ? 2.5 : 1;
+      ctx.strokeRect(itemX, itemY, kw, kh);
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = isSel ? "#ffffff" : "#fdf6ec";
+      ctx.font = isSpecial ? "bold 13px 'Courier New'" : "bold 18px 'Courier New'";
+      ctx.fillText(keyChar, itemX + kw / 2, itemY + 25);
+    });
+  });
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 12px 'Courier New'";
+  ctx.fillText("▲/▼/◄/►: Navigate  •  Z/Enter: Enter Letter  •  Backspace: Delete", mx + mw / 2, my + mh - 20);
+}
+
+// =============================================================================
+// COZY GRAMOPHONE / CHIPTUNE JUKEBOX
+// =============================================================================
+const jukeboxState = {
+  index: 0,
+  playingTrack: null,
+  returnState: STATE.CAMPING,
+  discAngle: 0
+};
+
+const JUKEBOX_TRACKS = [
+  { key: "PALLET_TOWN", name: "Pallet Town — Hopeful Morning", desc: "Warm, gentle chiptune melodies of home." },
+  { key: "VIRIDIAN_CITY", name: "Viridian City — Emerald Breeze", desc: "Lively, curious town steps." },
+  { key: "PEWTER_CITY", name: "Pewter City — Granite March", desc: "Solid, rocky march of the Boulder Badge." },
+  { key: "CERULEAN_CITY", name: "Cerulean City — Cascading Waters", desc: "Flowing canals and Misty's aquatic rhythm." },
+  { key: "VERMILION_CITY", name: "Vermilion Port — Sunset Harbor", desc: "Salty breeze, ocean liners, and vibrant horns." },
+  { key: "TRAINER_BATTLE", name: "Gym Leader Battle — High Stakes", desc: "Pulsing battle bassline of Kanto champions." },
+  { key: "RAIN_AMBIENCE", name: "Nature: Gentle Rain Showers", desc: "Soothing pitter-patter of countryside rainfall." },
+  { key: "FIRE_AMBIENCE", name: "Nature: Crackling Campfire", desc: "Warm crackles of burning cedar and amber embers." }
+];
+
+function openJukebox(returnState = STATE.CAMPING) {
+  jukeboxState.returnState = returnState;
+  jukeboxState.index = 0;
+  gameState = STATE.JUKEBOX;
+  sfx.textBlip && sfx.textBlip();
+}
+
+function handleJukeboxInput(key) {
+  const total = JUKEBOX_TRACKS.length;
+  if (key === "ArrowUp" || key === "w") {
+    jukeboxState.index = (jukeboxState.index - 1 + total) % total;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s") {
+    jukeboxState.index = (jukeboxState.index + 1) % total;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "z" || key === "Z" || key === "Enter") {
+    const track = JUKEBOX_TRACKS[jukeboxState.index];
+    jukeboxState.playingTrack = track.name;
+    sfx.levelUp && sfx.levelUp();
+    if (track.key === "RAIN_AMBIENCE") {
+      sfx.playNoise && sfx.playNoise(0.4, 0.08);
+    } else if (track.key === "FIRE_AMBIENCE") {
+      sfx.fire && sfx.fire();
+    } else {
+      music.play && music.play(track.key);
+    }
+  } else if (key === "x" || key === "X" || key === "Escape") {
+    gameState = jukeboxState.returnState || STATE.CAMPING;
+    sfx.textBlip && sfx.textBlip();
+  }
+}
+
+function renderJukebox() {
+  renderOverworld();
+  jukeboxState.discAngle += 0.05;
+
+  ctx.fillStyle = "rgba(18, 12, 22, 0.84)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mx = 60, my = 30, mw = 600, mh = 420;
+  ctx.fillStyle = "#2a1c22";
+  ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+  ctx.fillStyle = "#38242a";
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 3.5;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  // Gramophone Disc
+  const discX = mx + 90, discY = my + 130;
+  ctx.save();
+  ctx.translate(discX, discY);
+  ctx.rotate(jukeboxState.discAngle);
+  ctx.fillStyle = "#111115";
+  ctx.beginPath(); ctx.arc(0, 0, 48, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#2e2e38";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, 36, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = "#d84524"; // Center label
+  ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Floating music notes
+  const notes = ["♪", "♫", "♩", "♬"];
+  ctx.font = "bold 20px 'Courier New'";
+  ctx.fillStyle = "#ffcb78";
+  notes.forEach((nt, i) => {
+    const ny = discY - 50 - ((T * 0.4 + i * 22) % 45);
+    const nx = discX - 10 + Math.sin(T * 0.1 + i * 1.5) * 20;
+    ctx.fillText(nt, nx, ny);
+  });
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 22px 'Courier New'";
+  ctx.fillText("📻 COZY CHIPTUNE GRAMOPHONE 📻", mx + mw / 2, my + 34);
+
+  ctx.fillStyle = "#f5d4a6";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillText(`Currently Playing: ${jukeboxState.playingTrack || "None (Select track below)"}`, mx + mw / 2, my + 56);
+
+  // Track list
+  const lx = mx + 180, ly = my + 72, lw = 390, lh = 36;
+  JUKEBOX_TRACKS.forEach((t, i) => {
+    const isSel = jukeboxState.index === i;
+    const iy = ly + i * (lh + 6);
+
+    ctx.fillStyle = isSel ? "rgba(224, 168, 102, 0.28)" : "rgba(30, 18, 24, 0.45)";
+    ctx.fillRect(lx, iy, lw, lh);
+    ctx.strokeStyle = isSel ? "#ffcb78" : "#604758";
+    ctx.lineWidth = isSel ? 2 : 1;
+    ctx.strokeRect(lx, iy, lw, lh);
+
+    ctx.textAlign = "left";
+    ctx.font = "bold 14px 'Courier New'";
+    ctx.fillStyle = isSel ? "#ffe8b0" : "#f5ebd8";
+    ctx.fillText(`${isSel ? "▶ " : "  "}${t.name}`, lx + 12, iy + 22);
+  });
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 12px 'Courier New'";
+  ctx.fillText("▲/▼: Select Track  •  Z/Enter: Play  •  X: Close Gramophone", mx + mw / 2, my + mh - 16);
+}
+
+// =============================================================================
+// CAMPFIRE MOVE RELEARNER
+// =============================================================================
+const relearnerState = {
+  step: "SELECT_MON", // "SELECT_MON", "SELECT_MOVE", "SELECT_REPLACE"
+  monIdx: 0,
+  moveIdx: 0,
+  replaceIdx: 0,
+  availableMoves: [],
+  selectedMove: null,
+  returnState: STATE.CAMPING
+};
+
+function openMoveRelearner(returnState = STATE.CAMPING) {
+  relearnerState.returnState = returnState;
+  relearnerState.step = "SELECT_MON";
+  relearnerState.monIdx = 0;
+  relearnerState.moveIdx = 0;
+  relearnerState.replaceIdx = 0;
+  gameState = STATE.MOVE_RELEARNER;
+  sfx.textBlip && sfx.textBlip();
+}
+
+function getRelearnableMoves(mon) {
+  if (!mon || !mon.id) return [];
+  const baseMoves = (SPECIES_DB[mon.id] && SPECIES_DB[mon.id].moves) ? SPECIES_DB[mon.id].moves : [];
+  const levelUp = (LEVEL_UP_MOVES[mon.id] || []).filter(e => e.level <= mon.level).map(e => e.move);
+  const combined = [...baseMoves, ...levelUp];
+  const unique = [];
+  const seen = new Set();
+  const currentNames = new Set((mon.moves || []).map(m => m.name));
+  for (const m of combined) {
+    if (!m || !m.name) continue;
+    if (!seen.has(m.name) && !currentNames.has(m.name)) {
+      seen.add(m.name);
+      unique.push(JSON.parse(JSON.stringify(m)));
+    }
+  }
+  return unique;
+}
+
+function handleMoveRelearnerInput(key) {
+  const mon = player.team[relearnerState.monIdx];
+  if (relearnerState.step === "SELECT_MON") {
+    const total = player.team.length;
+    if (key === "ArrowUp" || key === "w") {
+      relearnerState.monIdx = (relearnerState.monIdx - 1 + total) % total;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "ArrowDown" || key === "s") {
+      relearnerState.monIdx = (relearnerState.monIdx + 1) % total;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "z" || key === "Z" || key === "Enter") {
+      relearnerState.availableMoves = getRelearnableMoves(player.team[relearnerState.monIdx]);
+      relearnerState.moveIdx = 0;
+      relearnerState.step = "SELECT_MOVE";
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "x" || key === "X" || key === "Escape") {
+      gameState = relearnerState.returnState || STATE.CAMPING;
+      sfx.textBlip && sfx.textBlip();
+    }
+  } else if (relearnerState.step === "SELECT_MOVE") {
+    const total = relearnerState.availableMoves.length;
+    if (total === 0) {
+      if (key === "x" || key === "X" || key === "z" || key === "Escape") {
+        relearnerState.step = "SELECT_MON";
+        sfx.textBlip && sfx.textBlip();
+      }
+      return;
+    }
+    if (key === "ArrowUp" || key === "w") {
+      relearnerState.moveIdx = (relearnerState.moveIdx - 1 + total) % total;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "ArrowDown" || key === "s") {
+      relearnerState.moveIdx = (relearnerState.moveIdx + 1) % total;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "z" || key === "Z" || key === "Enter") {
+      relearnerState.selectedMove = relearnerState.availableMoves[relearnerState.moveIdx];
+      if ((mon.moves || []).length < 4) {
+        mon.moves.push(relearnerState.selectedMove);
+        ensurePP(mon);
+        sfx.levelUp && sfx.levelUp();
+        showMapBanner(`${mon.name} REMEMBERED ${relearnerState.selectedMove.name}!`);
+        relearnerState.step = "SELECT_MON";
+      } else {
+        relearnerState.replaceIdx = 0;
+        relearnerState.step = "SELECT_REPLACE";
+        sfx.textBlip && sfx.textBlip();
+      }
+    } else if (key === "x" || key === "X" || key === "Escape") {
+      relearnerState.step = "SELECT_MON";
+      sfx.textBlip && sfx.textBlip();
+    }
+  } else if (relearnerState.step === "SELECT_REPLACE") {
+    const total = mon.moves.length;
+    if (key === "ArrowUp" || key === "w") {
+      relearnerState.replaceIdx = (relearnerState.replaceIdx - 1 + total) % total;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "ArrowDown" || key === "s") {
+      relearnerState.replaceIdx = (relearnerState.replaceIdx + 1) % total;
+      sfx.textBlip && sfx.textBlip();
+    } else if (key === "z" || key === "Z" || key === "Enter") {
+      const oldMove = mon.moves[relearnerState.replaceIdx].name;
+      mon.moves[relearnerState.replaceIdx] = relearnerState.selectedMove;
+      ensurePP(mon);
+      sfx.levelUp && sfx.levelUp();
+      showMapBanner(`${mon.name} FORGOT ${oldMove} AND LEARNED ${relearnerState.selectedMove.name}!`);
+      relearnerState.step = "SELECT_MON";
+    } else if (key === "x" || key === "X" || key === "Escape") {
+      relearnerState.step = "SELECT_MOVE";
+      sfx.textBlip && sfx.textBlip();
+    }
+  }
+}
+
+function renderMoveRelearner() {
+  renderOverworld();
+  ctx.fillStyle = "rgba(18, 12, 22, 0.84)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mx = 60, my = 30, mw = 600, mh = 420;
+  ctx.fillStyle = "#2a1c22";
+  ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+  ctx.fillStyle = "#38242a";
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 3.5;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 22px 'Courier New'";
+  ctx.fillText("🧠 CAMPFIRE REMINISCE (MOVE RELEARNER) 🧠", mx + mw / 2, my + 34);
+
+  if (relearnerState.step === "SELECT_MON") {
+    ctx.fillStyle = "#f5d4a6";
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillText("Select a partner Pokémon to recall forgotten memories & moves:", mx + mw / 2, my + 56);
+
+    player.team.forEach((p, idx) => {
+      const sel = relearnerState.monIdx === idx;
+      const iy = my + 75 + idx * 52;
+      ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.28)" : "rgba(30, 18, 24, 0.45)";
+      ctx.fillRect(mx + 40, iy, mw - 80, 46);
+      ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
+      ctx.lineWidth = sel ? 2.5 : 1;
+      ctx.strokeRect(mx + 40, iy, mw - 80, 46);
+
+      ctx.textAlign = "left";
+      ctx.font = "bold 16px 'Courier New'";
+      ctx.fillStyle = sel ? "#ffe8b0" : "#f5ebd8";
+      ctx.fillText(`${sel ? "▶ " : "  "}${p.name} Lv.${p.level}`, mx + 56, iy + 22);
+
+      ctx.font = "11px 'Courier New'";
+      ctx.fillStyle = sel ? "#e5c5a0" : "#a88e9a";
+      const mvs = (p.moves || []).map(m => m.name).join(" • ");
+      ctx.fillText(`Moves: ${mvs}`, mx + 75, iy + 38);
+    });
+  } else if (relearnerState.step === "SELECT_MOVE") {
+    const mon = player.team[relearnerState.monIdx];
+    ctx.fillStyle = "#f5d4a6";
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillText(`Select a move for ${mon.name} to recall:`, mx + mw / 2, my + 56);
+
+    const list = relearnerState.availableMoves;
+    if (list.length === 0) {
+      ctx.fillStyle = "#ff8a80";
+      ctx.font = "bold 16px 'Courier New'";
+      ctx.fillText("This Pokémon has already learned all eligible moves!", mx + mw / 2, my + 180);
+      ctx.fillStyle = "#f5ebd8";
+      ctx.font = "13px 'Courier New'";
+      ctx.fillText("Press [X] or [Z] to go back.", mx + mw / 2, my + 210);
+    } else {
+      list.forEach((mv, idx) => {
+        const sel = relearnerState.moveIdx === idx;
+        const iy = my + 75 + idx * 52;
+        ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.28)" : "rgba(30, 18, 24, 0.45)";
+        ctx.fillRect(mx + 40, iy, mw - 80, 46);
+        ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
+        ctx.lineWidth = sel ? 2.5 : 1;
+        ctx.strokeRect(mx + 40, iy, mw - 80, 46);
+
+        ctx.textAlign = "left";
+        ctx.font = "bold 16px 'Courier New'";
+        ctx.fillStyle = sel ? "#ffe8b0" : "#f5ebd8";
+        ctx.fillText(`${sel ? "▶ " : "  "}${mv.name}`, mx + 56, iy + 22);
+
+        ctx.font = "12px 'Courier New'";
+        ctx.fillStyle = sel ? "#ffd54f" : "#caa275";
+        ctx.fillText(`Power: ${mv.power}  •  Kind: ${mv.kind || "physical"}`, mx + 75, iy + 38);
+      });
+    }
+  } else if (relearnerState.step === "SELECT_REPLACE") {
+    const mon = player.team[relearnerState.monIdx];
+    ctx.fillStyle = "#f5d4a6";
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillText(`Select a move for ${mon.name} to forget for ${relearnerState.selectedMove.name}:`, mx + mw / 2, my + 56);
+
+    mon.moves.forEach((mv, idx) => {
+      const sel = relearnerState.replaceIdx === idx;
+      const iy = my + 75 + idx * 52;
+      ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.28)" : "rgba(30, 18, 24, 0.45)";
+      ctx.fillRect(mx + 40, iy, mw - 80, 46);
+      ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
+      ctx.lineWidth = sel ? 2.5 : 1;
+      ctx.strokeRect(mx + 40, iy, mw - 80, 46);
+
+      ctx.textAlign = "left";
+      ctx.font = "bold 16px 'Courier New'";
+      ctx.fillStyle = sel ? "#ffe8b0" : "#f5ebd8";
+      ctx.fillText(`${sel ? "▶ " : "  "}${mv.name}`, mx + 56, iy + 22);
+
+      ctx.font = "12px 'Courier New'";
+      ctx.fillStyle = sel ? "#ffd54f" : "#caa275";
+      ctx.fillText(`Power: ${mv.power}  •  Kind: ${mv.kind || "physical"}`, mx + 75, iy + 38);
+    });
+  }
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 12px 'Courier New'";
+  ctx.fillText("▲/▼: Navigate  •  Z/Enter: Choose  •  X: Cancel", mx + mw / 2, my + mh - 16);
+}
+
+// =============================================================================
+// EGG HATCHING SCENE
+// =============================================================================
+const eggHatchState = {
+  timer: 0,
+  egg: null,
+  hatchedMon: null,
+  step: "WOBBLE"
+};
+
+function triggerEggHatch(egg) {
+  eggHatchState.timer = 0;
+  eggHatchState.egg = egg;
+  eggHatchState.step = "WOBBLE";
+
+  let babyId = egg.speciesId;
+  if (!babyId && (egg.species || egg.speciesName)) {
+    const sName = (egg.species || egg.speciesName).toUpperCase();
+    const found = Object.values(SPECIES_DB).find(s => s.name === sName);
+    if (found) babyId = found.id;
+  }
+  babyId = babyId || 133;
+  const template = SPECIES_DB[babyId] || SPECIES_DB[133];
+  const hatched = JSON.parse(JSON.stringify(template));
+  if (egg.species && (!SPECIES_DB[egg.speciesId] || egg.species.toUpperCase() !== template.name)) {
+    hatched.name = egg.species.toUpperCase();
+  }
+  hatched.level = 5;
+  hatched.hp = hatched.maxHp = (hatched.baseHp || 24) + 5;
+  hatched.exp = 0;
+  hatched.maxExp = 45;
+  hatched.happy = 100;
+  hatched.spriteKey = (hatched.name.toLowerCase()) + "_front";
+  hatched.backSpriteKey = (hatched.name.toLowerCase()) + "_back";
+  ensurePP(hatched);
+  eggHatchState.hatchedMon = hatched;
+
+  const eggIdx = player.team.indexOf(egg);
+  if (eggIdx >= 0) {
+    player.team[eggIdx] = hatched;
+  } else if (player.team.length < 6) {
+    player.team.push(hatched);
+  } else {
+    player.pc.push(hatched);
+  }
+  player.egg = null;
+  player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
+  player.stats.hatched = (player.stats.hatched || 0) + 1;
+
+  gameState = STATE.EGG_HATCH;
+  sfx.ballWobble && sfx.ballWobble();
+}
+
+function handleEggHatchInput(key) {
+  if (eggHatchState.step === "HATCHED") {
+    if (key === "z" || key === "Z" || key === "Enter" || key === " ") {
+      promptNickname(eggHatchState.hatchedMon, STATE.OVERWORLD);
+    }
+  }
+}
+
+function renderEggHatch() {
+  eggHatchState.timer++;
+  const t = eggHatchState.timer;
+
+  ctx.fillStyle = "#1e1424";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 24px 'Courier New'";
+
+  const ex = CANVAS_WIDTH / 2, ey = 230;
+
+  if (t < 90) {
+    eggHatchState.step = "WOBBLE";
+    ctx.fillText("What's this? The Egg is shaking!", ex, 80);
+    const wobble = Math.sin(t * 0.4) * 0.25;
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(wobble);
+    ctx.fillStyle = "#ffeedd";
+    ctx.beginPath(); ctx.ellipse(0, 0, 36, 48, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#c8a27d"; ctx.lineWidth = 3; ctx.stroke();
+    // Green spots
+    ctx.fillStyle = "#81c784";
+    ctx.beginPath(); ctx.arc(-12, -14, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(14, 10, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  } else if (t < 150) {
+    eggHatchState.step = "CRACK";
+    ctx.fillText("The Egg cracked open!", ex, 80);
+    // Flash
+    const flashAlpha = Math.sin((t - 90) * 0.1) * 0.5;
+    ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Sparkles
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2 + t * 0.1;
+      const dist = (t - 90) * 2;
+      ctx.fillStyle = i % 2 === 0 ? "#ffd54f" : "#69f0ae";
+      ctx.beginPath();
+      ctx.arc(ex + Math.cos(ang) * dist, ey + Math.sin(ang) * dist, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    if (eggHatchState.step !== "HATCHED") {
+      eggHatchState.step = "HATCHED";
+      sfx.shinyFanfare && sfx.shinyFanfare();
+    }
+    const mon = eggHatchState.hatchedMon;
+    ctx.fillText(`🎉 A sweet ${mon.name} hatched from the Egg! 🎉`, ex, 80);
+
+    if (mon.spriteKey) {
+      drawGenSprite(mon.spriteKey, ex - 96, ey - 96, 192, 192);
+    }
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 15px 'Courier New'";
+    ctx.fillText("Press [Z] to give it a nickname!", ex, 380);
+  }
+}
 
 // =============================================================================
 // CAMPING & COOKING SYSTEM
@@ -2071,7 +3382,7 @@ function openCampsite(returnState = STATE.OVERWORLD) {
 }
 
 function handleCampingInput(key) {
-  const optionsCount = 4;
+  const optionsCount = 6;
   if (key === "ArrowUp" || key === "w" || key === "W") {
     campingState.index = (campingState.index - 1 + optionsCount) % optionsCount;
     sfx.textBlip();
@@ -2083,6 +3394,8 @@ function handleCampingInput(key) {
       if ((player.berries || 0) >= 1) {
         player.berries--;
         player.teaBuffSteps = 350;
+        player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
+        player.stats.cooked = (player.stats.cooked || 0) + 1;
         campingState.message = "Brewed fragrant Berry Tea! +25% EXP & Swift Steps for 350 steps!";
         showMapBanner("🍵 WARM TEA BUFF: +25% EXP & SWIFT STEPS!");
         sfx.potionUse && sfx.potionUse();
@@ -2094,6 +3407,8 @@ function handleCampingInput(key) {
     } else if (campingState.index === 1) {
       if ((player.berries || 0) >= 2) {
         player.berries -= 2;
+        player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
+        player.stats.cooked = (player.stats.cooked || 0) + 1;
         (player.team || []).forEach(p => {
           p.hp = p.maxHp;
           p.status = null;
@@ -2118,6 +3433,10 @@ function handleCampingInput(key) {
       showMapBanner("🥪 CAMP REST: PARTY RESTORED!");
       sfx.potionUse && sfx.potionUse();
     } else if (campingState.index === 3) {
+      openMoveRelearner(STATE.CAMPING);
+    } else if (campingState.index === 4) {
+      openJukebox(STATE.CAMPING);
+    } else if (campingState.index === 5) {
       gameState = campingState.returnState || STATE.OVERWORLD;
       sfx.textBlip();
     }
@@ -2132,7 +3451,7 @@ function renderCamping() {
   ctx.fillStyle = "rgba(18, 12, 22, 0.78)";
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  const mx = 80, my = 40, mw = 560, mh = 400;
+  const mx = 80, my = 30, mw = 560, mh = 420;
   ctx.fillStyle = "#261a24";
   ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
   ctx.fillStyle = "#3a2536";
@@ -2141,7 +3460,7 @@ function renderCamping() {
   ctx.lineWidth = 3.5;
   ctx.strokeRect(mx, my, mw, mh);
 
-  const fx = mx + 90, fy = my + 130;
+  const fx = mx + 85, fy = my + 140;
   ctx.fillStyle = "#4a2c18";
   ctx.fillRect(fx - 24, fy + 14, 48, 10);
   ctx.fillStyle = "#633c22";
@@ -2176,23 +3495,25 @@ function renderCamping() {
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 22px 'Courier New'";
   ctx.textAlign = "center";
-  ctx.fillText("🏕️ COZY ADVENTURER'S CAMPSITE 🏕️", mx + mw / 2, my + 34);
+  ctx.fillText("🏕️ COZY ADVENTURER'S CAMPSITE 🏕️", mx + mw / 2, my + 30);
 
   ctx.fillStyle = "#f5d4a6";
   ctx.font = "bold 13px 'Courier New'";
-  ctx.fillText(`Berries in Bag: 🍓 ${player.berries || 0}    •    Active Tea Buff: ${player.teaBuffSteps > 0 ? player.teaBuffSteps + " STEPS" : "NONE"}`, mx + mw / 2, my + 56);
+  ctx.fillText(`Berries in Bag: 🍓 ${player.berries || 0}    •    Active Tea Buff: ${player.teaBuffSteps > 0 ? player.teaBuffSteps + " STEPS" : "NONE"}`, mx + mw / 2, my + 50);
 
   const options = [
     { title: "🍵 BREW BERRY TEA", cost: "Cost: 1 Berry", desc: "+25% EXP in battle & swift steps for 350 steps!" },
     { title: "🍲 SIMMER HEARTY STEW", cost: "Cost: 2 Berries", desc: "Full team heal, cure status, restore all PP & happiness!" },
     { title: "🥪 COZY PICNIC REST", cost: "Free", desc: "Rest by the warm crackling campfire to heal HP." },
+    { title: "🧠 REMINISCE (MOVE RELEARNER)", cost: "Free", desc: "Recall forgotten moves by the warm embers!" },
+    { title: "📻 GRAMOPHONE (JUKEBOX)", cost: "Free", desc: "Play cozy chiptunes and relaxing nature soundscapes." },
     { title: "❌ PACK UP CAMP", cost: "", desc: "Resume your journey across Kanto." }
   ];
 
-  const ox = mx + 180, oy = my + 78, ow = 350, oh = 52;
+  const ox = mx + 175, oy = my + 66, ow = 360, oh = 44;
   options.forEach((opt, idx) => {
     const sel = campingState.index === idx;
-    const itemY = oy + idx * (oh + 10);
+    const itemY = oy + idx * (oh + 6);
     ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.25)" : "rgba(35, 24, 34, 0.45)";
     ctx.fillRect(ox, itemY, ow, oh);
     ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
@@ -2200,37 +3521,37 @@ function renderCamping() {
     ctx.strokeRect(ox, itemY, ow, oh);
 
     ctx.textAlign = "left";
-    ctx.font = "bold 15px 'Courier New'";
+    ctx.font = "bold 14px 'Courier New'";
     ctx.fillStyle = sel ? "#ffe8b0" : "#f5ebd8";
-    ctx.fillText(`${sel ? "▶ " : "  "}${opt.title}`, ox + 10, itemY + 22);
+    ctx.fillText(`${sel ? "▶ " : "  "}${opt.title}`, ox + 8, itemY + 18);
 
     if (opt.cost) {
       ctx.textAlign = "right";
       ctx.fillStyle = sel ? "#ffd54f" : "#caa275";
-      ctx.font = "bold 12px 'Courier New'";
-      ctx.fillText(opt.cost, ox + ow - 12, itemY + 22);
+      ctx.font = "bold 11px 'Courier New'";
+      ctx.fillText(opt.cost, ox + ow - 10, itemY + 18);
     }
 
     ctx.textAlign = "left";
-    ctx.font = "11px 'Courier New'";
+    ctx.font = "10px 'Courier New'";
     ctx.fillStyle = sel ? "#e5c5a0" : "#9f8994";
-    ctx.fillText(opt.desc, ox + 22, itemY + 40);
+    ctx.fillText(opt.desc, ox + 18, itemY + 34);
   });
 
   ctx.fillStyle = "rgba(25, 16, 24, 0.85)";
-  ctx.fillRect(mx + 14, my + mh - 70, mw - 28, 40);
+  ctx.fillRect(mx + 14, my + mh - 56, mw - 28, 36);
   ctx.strokeStyle = "#e8a855";
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(mx + 14, my + mh - 70, mw - 28, 40);
+  ctx.strokeRect(mx + 14, my + mh - 56, mw - 28, 36);
 
   ctx.textAlign = "center";
-  ctx.font = "bold 13px 'Courier New'";
+  ctx.font = "bold 12px 'Courier New'";
   ctx.fillStyle = "#fffaea";
-  ctx.fillText(campingState.message, mx + mw / 2, my + mh - 45);
+  ctx.fillText(campingState.message, mx + mw / 2, my + mh - 36);
 
   ctx.fillStyle = "#caa275";
   ctx.font = "bold 11px 'Courier New'";
-  ctx.fillText("▲/▼: Choose   •   Z/Enter: Cook / Rest   •   X/Esc: Pack Up", mx + mw / 2, my + mh - 12);
+  ctx.fillText("▲/▼: Choose   •   Z/Enter: Select   •   X/Esc: Pack Up", mx + mw / 2, my + mh - 8);
   ctx.textAlign = "left";
 }
 
@@ -2592,6 +3913,11 @@ function makeWagoner(townKey, x, y) {
 window.addEventListener("keydown", (e) => {
   sfx.init();
   music.unlock();
+  if (e.key === "u" || e.key === "U") music.toggle();
+  if ((e.key === "m" || e.key === "M") && gameState === STATE.OVERWORLD) {
+    openTownMap(STATE.OVERWORLD);
+    return;
+  }
   if (e.key === "m" || e.key === "M") music.toggle();
   if ((e.key === "n" || e.key === "N") && gameState === STATE.OVERWORLD) {
     seasonOverride = seasonOverride >= 3 ? -1 : seasonOverride + 1;
@@ -2654,6 +3980,22 @@ window.addEventListener("keydown", (e) => {
   }
   if (gameState === STATE.WAGON_TRAVEL) {
     handleWagonTravelInput(e.key);
+    return;
+  }
+  if (gameState === STATE.NICKNAME) {
+    handleNicknameInput(e.key);
+    return;
+  }
+  if (gameState === STATE.MOVE_RELEARNER) {
+    handleMoveRelearnerInput(e.key);
+    return;
+  }
+  if (gameState === STATE.JUKEBOX) {
+    handleJukeboxInput(e.key);
+    return;
+  }
+  if (gameState === STATE.EGG_HATCH) {
+    handleEggHatchInput(e.key);
     return;
   }
   if (gameState === STATE.LEVEL_UP_MODAL) {
@@ -2763,9 +4105,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  // OPTIONS MENU (8 Options matching renderOptionsMenu)
+  // OPTIONS MENU (9 Options matching renderOptionsMenu)
   if (gameState === STATE.OPTIONS_MENU) {
-    const totalOptions = 8;
+    const totalOptions = 9;
     if (e.key === "ArrowUp" || e.key === "w") {
       optionsMenu.index = (optionsMenu.index - 1 + totalOptions) % totalOptions;
       sfx.textBlip();
@@ -2773,12 +4115,12 @@ window.addEventListener("keydown", (e) => {
       optionsMenu.index = (optionsMenu.index + 1) % totalOptions;
       sfx.textBlip();
     } else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
-      if (optionsMenu.index === 4) {
+      if (optionsMenu.index === 5) {
         currentSaveSlot = currentSaveSlot === 1 ? 3 : currentSaveSlot - 1;
         sfx.textBlip();
       }
     } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
-      if (optionsMenu.index === 4) {
+      if (optionsMenu.index === 5) {
         currentSaveSlot = currentSaveSlot === 3 ? 1 : currentSaveSlot + 1;
         sfx.textBlip();
       }
@@ -2800,24 +4142,24 @@ window.addEventListener("keydown", (e) => {
         gameState = STATE.BAG_MENU;
         sfx.doorSound();
       } else if (optionsMenu.index === 3) {
-        // TRAINER CARD & BADGES
+        openTownMap(STATE.OPTIONS_MENU);
+      } else if (optionsMenu.index === 4) {
         gameState = STATE.TRAINER_CARD;
         sfx.doorSound();
-      } else if (optionsMenu.index === 4) {
-        // SAVE GAME (MANUAL) TO CURRENT SLOT
+      } else if (optionsMenu.index === 5) {
         saveGameManual(currentSaveSlot);
         optionsMenu.savedNotice = 90;
         sfx.levelUp && sfx.levelUp();
-      } else if (optionsMenu.index === 5) {
+      } else if (optionsMenu.index === 6) {
         setJoystickVisibility(!showTouchControls);
         sfx.ballWobble();
-      } else if (optionsMenu.index === 6) {
+      } else if (optionsMenu.index === 7) {
         settingsMenu.index = 0;
         settingsMenu.armed = false;
         settingsMenu.msg = "";
         gameState = STATE.SETTINGS;
         sfx.doorSound();
-      } else if (optionsMenu.index === 7) {
+      } else if (optionsMenu.index === 8) {
         gameState = optionsMenu.returnState;
         sfx.textBlip();
       }
@@ -3405,6 +4747,17 @@ function checkNPCInteract() {
   if (player.facing === "DOWN") ty++;
   if (player.facing === "LEFT") tx--;
   if (player.facing === "RIGHT") tx++;
+
+  // Berry Soil Gardening
+  const frontSoilKey = `${currentMapKey}_${tx}_${ty}`;
+  const hereSoilKey = `${currentMapKey}_${player.gridX}_${player.gridY}`;
+  if (SOIL_PATCHES[frontSoilKey]) {
+    interactSoilPatch(frontSoilKey);
+    return;
+  } else if (SOIL_PATCHES[hereSoilKey]) {
+    interactSoilPatch(hereSoilKey);
+    return;
+  }
 
   // Water interaction (Fishing - Recommendation 1)
   if (currentMap.tiles[ty] && currentMap.tiles[ty][tx] === 3) {
@@ -3999,9 +5352,9 @@ function updatePokeballAnimation() {
         else { player.pc.push(caughtMon); battle.message = `${caughtMon.name} was caught and sent to the PC box!`; }
 
         setTimeout(() => {
-          gameState = STATE.OVERWORLD;
+          promptNickname(caughtMon, STATE.OVERWORLD);
           music.play();
-        }, 3600);
+        }, 2200);
       } else {
         pokeballAnim.state = "ESCAPED";
         sfx.faint();
@@ -4158,6 +5511,120 @@ function spawnParticles(type, cx, cy) {
   }
 }
 
+function spawnCombatProjectile(type, fromX, fromY, toX, toY) {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const dist = Math.max(1, Math.hypot(dx, dy));
+
+  if (type === "EMBER") {
+    // Fireball stream arcing from attacker to target
+    for (let i = 0; i < 14; i++) {
+      const prog = i / 14;
+      const px = fromX + dx * prog + (Math.random() - 0.5) * 16;
+      const py = fromY + dy * prog - Math.sin(prog * Math.PI) * 45 + (Math.random() - 0.5) * 16;
+      const colors = ["#ff3d00", "#ff9100", "#ffd600", "#ffffff"];
+      battle.particles.push({
+        x: px,
+        y: py,
+        vx: (dx / dist) * (4 + Math.random() * 3),
+        vy: (dy / dist) * (4 + Math.random() * 3) - 1,
+        life: 18 + Math.floor(Math.random() * 8),
+        size: Math.random() * 6 + 4,
+        color: colors[i % colors.length],
+        grav: 0.08
+      });
+    }
+  } else if (type === "WATER") {
+    // Azure high-velocity water jet stream
+    for (let i = 0; i < 16; i++) {
+      const prog = i / 16;
+      const px = fromX + dx * prog + (Math.random() - 0.5) * 12;
+      const py = fromY + dy * prog + (Math.random() - 0.5) * 12;
+      const colors = ["#00b0ff", "#40c4ff", "#80d8ff", "#ffffff"];
+      battle.particles.push({
+        x: px,
+        y: py,
+        vx: (dx / dist) * 7 + (Math.random() - 0.5) * 2,
+        vy: (dy / dist) * 7 + (Math.random() - 0.5) * 2,
+        life: 16 + Math.floor(Math.random() * 6),
+        size: Math.random() * 5 + 3,
+        color: colors[i % colors.length],
+        grav: 0.14
+      });
+    }
+  } else if (type === "LEAF") {
+    // Emerald swirling vortex of leaves
+    for (let i = 0; i < 14; i++) {
+      const prog = i / 14;
+      const swirl = Math.sin(prog * Math.PI * 4) * 25;
+      const px = fromX + dx * prog - (dy / dist) * swirl;
+      const py = fromY + dy * prog + (dx / dist) * swirl;
+      const colors = ["#2e7d32", "#43a047", "#76ff03", "#b9f6ca"];
+      battle.particles.push({
+        x: px,
+        y: py,
+        vx: (dx / dist) * 5 + (Math.random() - 0.5) * 2,
+        vy: (dy / dist) * 5 + (Math.random() - 0.5) * 2,
+        life: 20 + Math.floor(Math.random() * 6),
+        size: Math.random() * 6 + 3,
+        color: colors[i % colors.length],
+        grav: 0
+      });
+    }
+  } else if (type === "THUNDER") {
+    // Jagged electric bolt arcs
+    const segs = 8;
+    for (let i = 0; i < segs; i++) {
+      const nextProg = (i + 1) / segs;
+      const targetSegX = fromX + dx * nextProg + (i < segs - 1 ? (Math.random() - 0.5) * 40 : 0);
+      const targetSegY = fromY + dy * nextProg + (i < segs - 1 ? (Math.random() - 0.5) * 40 : 0);
+      const colors = ["#ffff00", "#ffea00", "#00e5ff", "#ffffff"];
+      battle.particles.push({
+        x: targetSegX,
+        y: targetSegY,
+        vx: (Math.random() - 0.5) * 6,
+        vy: (Math.random() - 0.5) * 6,
+        life: 14 + Math.floor(Math.random() * 6),
+        size: Math.random() * 6 + 4,
+        color: colors[i % colors.length],
+        grav: 0
+      });
+    }
+  } else if (type === "PSYCHIC") {
+    // Concentric shimmering psychic ripples
+    for (let i = 0; i < 12; i++) {
+      const prog = i / 12;
+      const px = fromX + dx * prog;
+      const py = fromY + dy * prog;
+      battle.particles.push({
+        x: px,
+        y: py,
+        vx: (dx / dist) * 4 + (Math.random() - 0.5) * 3,
+        vy: (dy / dist) * 4 + (Math.random() - 0.5) * 3,
+        life: 20,
+        size: 5 + i * 0.8,
+        color: i % 2 === 0 ? "#e040fb" : "#7c4dff",
+        grav: 0
+      });
+    }
+  } else {
+    // Claw slash / impact sparks
+    for (let i = 0; i < 10; i++) {
+      const prog = (i / 10) - 0.5;
+      battle.particles.push({
+        x: toX + prog * 40,
+        y: toY + prog * 40,
+        vx: (Math.random() - 0.5) * 8,
+        vy: (Math.random() - 0.5) * 8,
+        life: 16,
+        size: Math.random() * 6 + 3,
+        color: Math.random() > 0.5 ? "#ffffff" : "#ff5252",
+        grav: 0.15
+      });
+    }
+  }
+}
+
 function _executePlayerMove(move) {
   battle.turnLock = true;
   battle.menuState = "MAIN";
@@ -4172,6 +5639,7 @@ function _executePlayerMove(move) {
 
     const fxType = getMoveFxType(move, battle.playerMon);
     playMoveSfx(fxType);
+    spawnCombatProjectile(fxType, 190, 270, 530, 150);
     spawnParticles(fxType, 530, 150);
 
     battle.animShake = 12;
@@ -4522,6 +5990,7 @@ function _executeEnemyTurn() {
     battle.enemyOffset.y = 0;
     const fxType = getMoveFxType(chosenMove, battle.enemy);
     playMoveSfx(fxType);
+    spawnCombatProjectile(fxType, 530, 150, 190, 270);
     spawnParticles(fxType, 190, 290);
     battle.animShake = 12;
     battle.playerFlicker = true;
@@ -6141,6 +7610,13 @@ function saveGameManual(slot = currentSaveSlot) {
         hasOldRod: player.hasOldRod,
         hasSurfboard: player.hasSurfboard,
         hasPruningShears: player.hasPruningShears,
+        hasGoodRod: player.hasGoodRod,
+        trainerId: player.trainerId,
+        playtime: player.playtime,
+        stats: player.stats,
+        soilPatches: player.soilPatches,
+        daycare: player.daycare,
+        egg: player.egg,
         teaBuffSteps: player.teaBuffSteps,
         steps: player.steps,
         beatBugCatcher: player.beatBugCatcher,
@@ -6168,6 +7644,15 @@ function loadGame(slot = currentSaveSlot) {
     const data = JSON.parse(raw);
     if (!data || !data.player) return false;
     Object.assign(player, data.player);
+    // Backwards compatibility defaults
+    player.trainerId = player.trainerId || (10000 + Math.floor(Math.random() * 90000));
+    player.playtime = player.playtime || 0;
+    player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
+    player.soilPatches = player.soilPatches || {};
+    player.daycare = player.daycare || { mon: null, hasEgg: false, eggSteps: 0 };
+    player.egg = player.egg || null;
+    player.hasGoodRod = player.hasGoodRod || false;
+
     if (data.currentMapKey && MAPS[data.currentMapKey]) {
       currentMapKey = data.currentMapKey;
       currentMap = MAPS[currentMapKey];
@@ -6362,19 +7847,72 @@ function ambientTick() {
   }
 }
 function stepSound(tile) {
-  if (!sfx.ctx) return;
-  if (tile === 2) {
-    sfx.playNoise(0.045, 0.022);
-  } else if (tile === 12 || tile === 13 || tile === 18) {
-    sfx.playTone(160, "triangle", 0.035, 90, 0.025);
-  } else if (tile === 7 || tile === 8 || tile === 9 || tile === 10) {
-    sfx.playTone(520, "square", 0.025, 320, 0.018);
-  } else if (tile === 3) {
-    sfx.playNoise(0.06, 0.035);
-  } else {
-    sfx.playTone(190, "triangle", 0.04, 130, 0.028);
+  if (sfx.ctx) {
+    if (tile === 2) {
+      sfx.playNoise(0.045, 0.022);
+    } else if (tile === 12 || tile === 13 || tile === 18) {
+      sfx.playTone(160, "triangle", 0.035, 90, 0.025);
+    } else if (tile === 7 || tile === 8 || tile === 9 || tile === 10) {
+      sfx.playTone(520, "square", 0.025, 320, 0.018);
+    } else if (tile === 3) {
+      sfx.playNoise(0.06, 0.035);
+    } else {
+      sfx.playTone(190, "triangle", 0.04, 130, 0.028);
+    }
   }
-  if (++player.steps % 50 === 0) { const m = leadMon(); if (m) m.happy = Math.min(100, (m.happy || 0) + 1); }
+
+  // --- Step Processing ---
+  player.steps = (player.steps || 0) + 1;
+
+  // Tea Buff countdown
+  if (player.teaBuffSteps && player.teaBuffSteps > 0) {
+    player.teaBuffSteps--;
+  }
+
+  // 1. Berry Soil Gardening Progression
+  if (player.soilPatches) {
+    for (const k in player.soilPatches) {
+      const p = player.soilPatches[k];
+      if (p.state === "PLANTED") {
+        p.steps = (p.steps || 0) + 1;
+      }
+    }
+  }
+
+  // 2. Daycare EXP & Passive Leveling
+  if (player.daycare && player.daycare.mon) {
+    const dcMon = player.daycare.mon;
+    dcMon.exp = (dcMon.exp || 0) + 1;
+    const needed = (dcMon.level || 5) * (dcMon.level || 5) * 8;
+    if (dcMon.exp >= needed && dcMon.level < 100) {
+      dcMon.level++;
+      dcMon.maxHp += 3;
+      dcMon.hp = dcMon.maxHp;
+    }
+  }
+  // Daycare Grandpa Egg Generation: 100 steps
+  if (player.daycare && !player.daycare.hasEgg && !player.egg) {
+    player.daycare.eggSteps = (player.daycare.eggSteps || 0) + 1;
+    if (player.daycare.eggSteps >= 100) {
+      player.daycare.hasEgg = true;
+    }
+  }
+
+  // 3. Egg Hatching Progress
+  if (player.egg) {
+    // If party has a Fire Pokémon (Flame Body warming) or warm Tea buff is active, steps count 2x!
+    const hasWarmParty = (player.teaBuffSteps > 0) || (player.team || []).some(m => m.type === "FIRE");
+    const stepDec = hasWarmParty ? 2 : 1;
+    player.egg.stepsLeft = Math.max(0, (player.egg.stepsLeft || 200) - stepDec);
+    if (player.egg.stepsLeft <= 0 && gameState === STATE.OVERWORLD) {
+      const hatchingEgg = player.egg;
+      player.egg = null;
+      triggerEggHatch(hatchingEgg);
+      return;
+    }
+  }
+
+  if (player.steps % 50 === 0) { const m = leadMon(); if (m) m.happy = Math.min(100, (m.happy || 0) + 1); }
   if (player.steps % 120 === 0 && player.team && player.team.length > 0) {
     const partner = player.team[0];
     if (partner && (partner.happy || 0) >= 40 && Math.random() < 0.45) {
@@ -6590,6 +8128,7 @@ function renderOverworld() {
   drawMapLayer();
   drawHidden();
   drawPicnic();
+  drawSoilPatches();
 
   // NPCs
   let hx = player.gridX, hy = player.gridY;
@@ -6673,7 +8212,7 @@ function renderOptionsMenu() {
   ctx.fillStyle = "rgba(18, 12, 22, 0.75)";
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  const mx = 170, my = 26, mw = 380, mh = 428;
+  const mx = 160, my = 22, mw = 400, mh = 436;
   ctx.fillStyle = "#281e28";
   ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
   ctx.fillStyle = "#3d2e38";
@@ -6684,7 +8223,7 @@ function renderOptionsMenu() {
 
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 20px 'Courier New'";
-  ctx.fillText("❖ SETTINGS & BAG ❖", mx + 50, my + 30);
+  ctx.fillText("❖ SETTINGS & BAG ❖", mx + 60, my + 26);
 
   const totalItems = (player.potions || 0) + (player.pokeBalls || 0) + (player.rareCandies || 0) + (player.thunderStones || 0) + (player.moonStones || 0);
   const badgeCount = (player.hasBoulderBadge ? 1 : 0) + (player.hasCascadeBadge ? 1 : 0) + (player.hasThunderBadge ? 1 : 0);
@@ -6695,7 +8234,8 @@ function renderOptionsMenu() {
     { label: "POKéDEX",        status: `[ ${POKEDEX_KEYS.length} MONS ]`, desc: "Full stats, cries & evolutionary lines" },
     { label: "POKéMON PARTY",  status: `[ ${player.team.length} / 6 ]`, desc: "View party and individual stats" },
     { label: "ITEM BAG",       status: `[ ${totalItems} ITEMS ]`, desc: "Use Candies, Stones, Potions & Balls" },
-    { label: "TRAINER BADGES", status: `[ ${badgeCount} BADGE${badgeCount === 1 ? "" : "S"} ]`, desc: "View official Gym Badges" },
+    { label: "TOWN MAP",       status: "[ KANTO ]", desc: "View regional map & exact coordinates (M)" },
+    { label: "TRAINER CARD",   status: `[ ${badgeCount} BADGE${badgeCount === 1 ? "" : "S"} ]`, desc: "Trainer ID, playtime, badges & ribbons" },
     { label: "SAVE GAME",      status: optionsMenu.savedNotice ? "[ SAVED! ]" : `[ SLOT ${currentSaveSlot} ]`, desc: "◄/►: Switch Slot (1-3) • Z: Save to Slot" },
     { label: "TOUCH CONTROLS", status: showTouchControls ? "[ ON  ]" : "[ OFF ]", desc: "Show / hide on-screen D-Pad" },
     { label: "SETTINGS",       status: "", desc: "Volume, text, weather, season, erase" },
@@ -6704,131 +8244,222 @@ function renderOptionsMenu() {
 
   items.forEach((item, idx) => {
     const isSelected = optionsMenu.index === idx;
-    const iy = my + 58 + idx * 43;
+    const iy = my + 44 + idx * 41;
 
     ctx.fillStyle = isSelected ? "rgba(224, 168, 102, 0.22)" : "rgba(30, 20, 28, 0.35)";
-    ctx.fillRect(mx + 16, iy - 14, mw - 32, 39);
+    ctx.fillRect(mx + 14, iy - 10, mw - 28, 38);
 
     if (isSelected) {
       ctx.strokeStyle = "#ffcb78";
       ctx.lineWidth = 2;
-      ctx.strokeRect(mx + 16, iy - 14, mw - 32, 39);
+      ctx.strokeRect(mx + 14, iy - 10, mw - 28, 38);
     }
 
-    ctx.font = "bold 15px 'Courier New'";
+    ctx.font = "bold 14px 'Courier New'";
     ctx.fillStyle = isSelected ? "#ffdf9e" : "#f0e6d6";
-    ctx.fillText(`${isSelected ? "▶ " : "  "}${item.label}`, mx + 24, iy + 6);
+    ctx.fillText(`${isSelected ? "▶ " : "  "}${item.label}`, mx + 20, iy + 8);
 
     if (item.status) {
       ctx.fillStyle = item.label === "SAVE GAME" && optionsMenu.savedNotice ? "#81c784" : isSelected ? "#ffeaa8" : "#caa275";
-      ctx.fillText(item.status, mx + mw - 145, iy + 6);
+      ctx.fillText(item.status, mx + mw - 145, iy + 8);
     }
 
-    ctx.font = "11px 'Courier New'";
+    ctx.font = "10px 'Courier New'";
     ctx.fillStyle = isSelected ? "#e5c5a0" : "#99857d";
-    ctx.fillText(item.desc, mx + 44, iy + 20);
+    ctx.fillText(item.desc, mx + 38, iy + 22);
   });
 
   ctx.fillStyle = "#e0cfb8";
-  ctx.font = "bold 12px 'Courier New'";
-  ctx.fillText("▲/▼: Navigate • Z/Enter: Select • P/X: Close", mx + 30, my + mh - 10);
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("▲/▼: Navigate • Z/Enter: Select • P/X: Close", mx + 25, my + mh - 8);
 }
 
 function renderTrainerCardScreen() {
-  ctx.fillStyle = "#1e1620";
+  ctx.fillStyle = "#18121a";
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  const cx = 80, cy = 50, cw = 560, ch = 380;
+  const cx = 50, cy = 25, cw = 620, ch = 430;
   ctx.fillStyle = "#f5efe6";
   ctx.fillRect(cx, cy, cw, ch);
   ctx.strokeStyle = "#b83832";
-  ctx.lineWidth = 8;
+  ctx.lineWidth = 6;
   ctx.strokeRect(cx, cy, cw, ch);
 
+  // Top Crimson Header
   ctx.fillStyle = "#b83832";
-  ctx.fillRect(cx, cy, cw, 48);
+  ctx.fillRect(cx, cy, cw, 44);
 
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 22px 'Courier New'";
-  ctx.fillText("OFFICIAL TRAINER CARD", cx + 24, cy + 34);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 20px 'Courier New'";
+  ctx.fillText("OFFICIAL TRAINER CARD", cx + 24, cy + 30);
+
+  ctx.fillStyle = "#ffeaa7";
+  ctx.font = "bold 15px 'Courier New'";
+  ctx.textAlign = "right";
+  ctx.fillText(`IDNo. ${player.trainerId || 49201}`, cx + cw - 24, cy + 30);
+  ctx.textAlign = "left";
+
+  // Left column: Trainer Details
+  const secs = player.playtime || 0;
+  const hh = String(Math.floor(secs / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+  const ss = String(secs % 60).padStart(2, "0");
 
   ctx.fillStyle = "#2c1f28";
-  ctx.font = "bold 18px 'Courier New'";
-  ctx.fillText("NAME: RED", cx + 40, cy + 90);
-  ctx.fillText(`MONEY: $ ${player.money.toLocaleString()}`, cx + 40, cy + 120);
-  ctx.fillText(`POKéDEX: ${player.team.length} OBTAINED`, cx + 40, cy + 150);
+  ctx.font = "bold 16px 'Courier New'";
+  ctx.fillText("NAME: RED", cx + 30, cy + 80);
+  ctx.fillText(`TIME: ${hh}:${mm}:${ss}`, cx + 30, cy + 108);
+  ctx.fillText(`MONEY: $ ${player.money.toLocaleString()}`, cx + 30, cy + 136);
+  ctx.fillText(`POKéDEX: ${player.team.length + (player.pc ? player.pc.length : 0)} CAUGHT`, cx + 30, cy + 164);
 
-  // BADGES CASE
+  // Right column: Red's Portrait Frame
+  const portX = cx + cw - 150, portY = cy + 60, portW = 120, portH = 115;
   ctx.fillStyle = "#e2d7c8";
-  ctx.fillRect(cx + 30, cy + 190, cw - 60, 140);
+  ctx.fillRect(portX, portY, portW, portH);
+  ctx.strokeStyle = "#8b5a36";
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(portX, portY, portW, portH);
+
+  // Red Sprite inside portrait
+  drawPerson(portX + 36, portY + 22, "#bd3832", "#eae3d2", 0, 0, "DOWN", "RED");
+
+  ctx.fillStyle = "#5c4033";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillText("TRAINER RED", portX + portW / 2, portY + portH - 8);
+  ctx.textAlign = "left";
+
+  // MIDDLE SECTION: GYM BADGES CASE
+  const badgeY = cy + 190, badgeH = 100;
+  ctx.fillStyle = "#e2d7c8";
+  ctx.fillRect(cx + 20, badgeY, cw - 40, badgeH);
   ctx.strokeStyle = "#7c685b";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(cx + 30, cy + 190, cw - 60, 140);
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(cx + 20, badgeY, cw - 40, badgeH);
 
   ctx.fillStyle = "#4a3528";
-  ctx.font = "bold 16px 'Courier New'";
-  ctx.fillText("GYM BADGES", cx + 50, cy + 220);
+  ctx.font = "bold 14px 'Courier New'";
+  ctx.fillText("GYM BADGES CASE", cx + 32, badgeY + 22);
 
-  // BOULDER BADGE PODIUM (Slot 0)
-  const bx = cx + 80, by = cy + 270;
+  // Boulder Badge (Slot 0)
+  const bx = cx + 80, by = badgeY + 58;
   if (player.hasBoulderBadge) {
-    drawBoulderBadgeIcon(bx, by, 44);
+    drawBoulderBadgeIcon(bx, by, 36);
     ctx.fillStyle = "#2c1f28";
-    ctx.font = "bold 12px 'Courier New'";
-    ctx.fillText("BOULDER", bx - 24, by + 40);
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("BOULDER", bx, by + 32);
   } else {
     ctx.strokeStyle = "#9c8e84";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(bx - 22, by - 22, 44, 44);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx - 18, by - 18, 36, 36);
     ctx.fillStyle = "#8a7e75";
-    ctx.font = "11px 'Courier New'";
-    ctx.fillText("EMPTY", bx - 16, by + 4);
+    ctx.font = "10px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("EMPTY", bx, by + 4);
   }
 
-  // CASCADE BADGE PODIUM (Slot 1)
-  const cx1 = bx + 64;
+  // Cascade Badge (Slot 1)
+  const cx1 = bx + 70;
   if (player.hasCascadeBadge) {
-    drawCascadeBadgeIcon(cx1, by, 44);
+    drawCascadeBadgeIcon(cx1, by, 36);
     ctx.fillStyle = "#1e3a5f";
-    ctx.font = "bold 12px 'Courier New'";
-    ctx.fillText("CASCADE", cx1 - 24, by + 40);
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("CASCADE", cx1, by + 32);
   } else {
     ctx.strokeStyle = "#9c8e84";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx1 - 22, by - 22, 44, 44);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx1 - 18, by - 18, 36, 36);
     ctx.fillStyle = "#8a7e75";
-    ctx.font = "11px 'Courier New'";
-    ctx.fillText("EMPTY", cx1 - 16, by + 4);
+    ctx.font = "10px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("EMPTY", cx1, by + 4);
   }
 
-  // THUNDER BADGE PODIUM (Slot 2)
-  const cx2 = bx + 128;
+  // Thunder Badge (Slot 2)
+  const cx2 = bx + 140;
   if (player.hasThunderBadge) {
-    drawThunderBadgeIcon(cx2, by, 44);
+    drawThunderBadgeIcon(cx2, by, 36);
     ctx.fillStyle = "#b87010";
-    ctx.font = "bold 12px 'Courier New'";
-    ctx.fillText("THUNDER", cx2 - 24, by + 40);
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("THUNDER", cx2, by + 32);
   } else {
     ctx.strokeStyle = "#9c8e84";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx2 - 22, by - 22, 44, 44);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx2 - 18, by - 18, 36, 36);
     ctx.fillStyle = "#8a7e75";
-    ctx.font = "11px 'Courier New'";
-    ctx.fillText("EMPTY", cx2 - 16, by + 4);
+    ctx.font = "10px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("EMPTY", cx2, by + 4);
   }
 
   // Blank slots for other 5 badges
   for (let i = 3; i < 8; i++) {
-    const ox = bx + i * 64;
+    const ox = bx + i * 70;
     ctx.strokeStyle = "#b5a89e";
-    ctx.strokeRect(ox - 20, by - 20, 40, 40);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox - 16, by - 16, 32, 32);
   }
 
-  ctx.fillStyle = "#ffcb78";
-  ctx.fillRect(0, 445, CANVAS_WIDTH, 35);
-  ctx.fillStyle = "#2c1f28";
+  // BOTTOM SECTION: COZY ACHIEVEMENT RIBBONS
+  const ribY = cy + 305, ribH = 110;
+  ctx.fillStyle = "#e8dfd3";
+  ctx.fillRect(cx + 20, ribY, cw - 40, ribH);
+  ctx.strokeStyle = "#7c685b";
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(cx + 20, ribY, cw - 40, ribH);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#4a3528";
   ctx.font = "bold 14px 'Courier New'";
-  ctx.fillText("Press Z / X / Esc to return", 240, 467);
+  ctx.fillText("COZY ACHIEVEMENT RIBBONS", cx + 32, ribY + 22);
+
+  const st = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
+  const ribbons = [
+    { title: "Master Cook", earned: (st.cooked || 0) >= 3, icon: "🍵", col: "#4caf50", desc: "Cook 3 campsite meals" },
+    { title: "Gentle Soul", earned: (st.cared || 0) >= 5, icon: "💖", col: "#e91e63", desc: "Care for partner 5 times" },
+    { title: "Master Angler", earned: (st.fished || 0) >= 3, icon: "🎣", col: "#2196f3", desc: "Reel in 3 fish" },
+    { title: "Starlight", earned: (st.shinies || 0) >= 1, icon: "✨", col: "#ffb300", desc: "Encounter a Shiny" },
+    { title: "Egg Whisperer", earned: (st.hatched || 0) >= 1, icon: "🐣", col: "#9c27b0", desc: "Hatch a Pokémon Egg" }
+  ];
+
+  ribbons.forEach((rib, i) => {
+    const rx = cx + 75 + i * 110, ry = ribY + 60;
+
+    // Rosette Ribbon
+    ctx.fillStyle = rib.earned ? rib.col : "#9e9e9e";
+    ctx.beginPath();
+    ctx.arc(rx, ry - 6, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = rib.earned ? "#ffd54f" : "#616161";
+    ctx.lineWidth = rib.earned ? 2 : 1;
+    ctx.stroke();
+
+    // Ribbon Tails
+    ctx.fillStyle = rib.earned ? rib.col : "#9e9e9e";
+    ctx.beginPath();
+    ctx.moveTo(rx - 8, ry + 4); ctx.lineTo(rx - 12, ry + 22); ctx.lineTo(rx - 2, ry + 16); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(rx + 8, ry + 4); ctx.lineTo(rx + 12, ry + 22); ctx.lineTo(rx + 2, ry + 16); ctx.fill();
+
+    // Ribbon Icon
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "14px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText(rib.icon, rx, ry);
+
+    // Title
+    ctx.fillStyle = rib.earned ? "#2c1f28" : "#8d7b88";
+    ctx.font = "bold 10px 'Courier New'";
+    ctx.fillText(rib.title, rx, ry + 34);
+  });
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#8a6d58";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("Press [Z] / [X] / [Esc] to return to menu", cx + cw / 2, cy + ch - 12);
 }
 
 // BADGE AWARD FANFARE CUTSCENE
@@ -7918,7 +9549,9 @@ function renderBattle() {
 
   for (let i = battle.particles.length - 1; i >= 0; i--) {
     const p = battle.particles[i];
-    p.x += p.vx; p.y += p.vy; p.life--;
+    p.x += p.vx; p.y += p.vy;
+    if (p.grav) p.vy += p.grav;
+    p.life--;
     ctx.fillStyle = p.color;
     ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
     if (p.life <= 0) battle.particles.splice(i, 1);
@@ -8285,6 +9918,9 @@ function renderTransition() {
 // =============================================================================
 function gameLoop() {
   T++;
+  if (T % 60 === 0 && player.playtime !== undefined) {
+    player.playtime++;
+  }
   if (gameState !== STATE.BATTLE && gameState !== STATE.EVOLUTION_SCENE) updateFx();
 
   if (ctx) {
@@ -8337,6 +9973,18 @@ function gameLoop() {
     renderPartnerCare();
   } else if (gameState === STATE.WAGON_TRAVEL) {
     renderWagonTravel();
+  } else if (gameState === STATE.TOWN_MAP) {
+    renderTownMap();
+  } else if (gameState === STATE.FISHING) {
+    renderFishing();
+  } else if (gameState === STATE.NICKNAME) {
+    renderNicknameScreen();
+  } else if (gameState === STATE.MOVE_RELEARNER) {
+    renderMoveRelearner();
+  } else if (gameState === STATE.JUKEBOX) {
+    renderJukebox();
+  } else if (gameState === STATE.EGG_HATCH) {
+    renderEggHatch();
   }
 
   requestAnimationFrame(gameLoop);
