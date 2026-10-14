@@ -837,6 +837,29 @@ function calcDamage(move, attacker, defender) {
   let dmg = Math.round(move.power * mult);
   if ((attacker.happy || 0) >= 70 && attacker === battle.playerMon) dmg = Math.round(dmg * 1.1);
   if (attacker.status === "BRN") dmg = Math.round(dmg * 0.7);
+
+  // Starter Signature Abilities at low HP (<= 35% HP)
+  let abilityText = "";
+  const isLowHp = attacker.hp <= attacker.maxHp * 0.35;
+  if (isLowHp) {
+    if (attacker.type === "FIRE" && move.kind === "special") {
+      dmg = Math.round(dmg * 1.5);
+      abilityText = " [Blaze! 🔥]";
+    } else if (attacker.type === "GRASS" && move.kind === "special") {
+      dmg = Math.round(dmg * 1.5);
+      abilityText = " [Overgrow! 🌿]";
+    } else if (attacker.type === "WATER" && move.kind === "special") {
+      dmg = Math.round(dmg * 1.5);
+      abilityText = " [Torrent! 💧]";
+    }
+  }
+
+  // Static Ability (e.g. Pikachu line) on physical contact
+  if (defender.type === "ELECTRIC" && move.kind === "physical" && !attacker.status && Math.random() < 0.30) {
+    attacker.status = "PAR";
+    abilityText += ` ${attacker.name} was paralyzed by Static!`;
+  }
+
   const crit = mult > 0 && Math.random() < 0.0625; if (crit) dmg = Math.round(dmg * 1.5);
   if (mult > 0) dmg = Math.max(1, dmg);
   let text = "";
@@ -845,6 +868,7 @@ function calcDamage(move, attacker, defender) {
   else if (mult < 1) text = "It's not very effective...";
   const st = rollStatus(move, defender, dmg); if (st) text = st;
   if (crit) text = "A critical hit!" + (text ? " " + text : "");
+  if (abilityText) text = (text ? text + " " : "") + abilityText;
   return { dmg, mult, text, crit };
 }
 
@@ -1608,10 +1632,22 @@ MAPS.VERMILION_CITY = {
       x: 5,
       y: 7,
       palette: { body: "#284a7a", hair: "#202028" },
-      dialogue: [
-        "Sailor Dwayne: Welcome to Vermilion Port! The grand cruise ship S.S. ANNE is docked south on the pier!",
-        "Step down onto the gangway to explore the ship!"
-      ]
+      dialogue: [],
+      getDialogue: () => {
+        if (!player.hasSurfboard) {
+          player.hasSurfboard = true;
+          sfx.badgeFanfare && sfx.badgeFanfare();
+          showMapBanner("OBTAINED WOODEN SURFBOARD! CAN SURF WATER!");
+          return [
+            "Sailor Dwayne: Ahoy there, young adventurer! You've got that salt-of-the-earth spirit!",
+            "Sailor Dwayne: Here, take this Handcrafted Wooden Surfboard! You can paddle across calm ocean water anywhere without needing an HM!"
+          ];
+        }
+        return [
+          "Sailor Dwayne: Welcome to Vermilion Port! The grand cruise ship S.S. ANNE is docked south on the pier!",
+          "Step down onto the gangway to explore the ship!"
+        ];
+      }
     }
   ],
   encounters: [wild(100, 16, 50, 0.6), wild(25, 16, 48, 0.4), wild(19, 15, 34, 0.6), wild(60, 15, 45, 0.5)],
@@ -1759,17 +1795,19 @@ const CANVAS_HEIGHT = 480;
 const canvas = document.getElementById("screen");
 let ctx = canvas ? canvas.getContext("2d") : null;
 
-let dpr = (typeof window !== "undefined" && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2) : 1;
+let dpr = 1;
 
 function updateCanvasResolution() {
-  dpr = (typeof window !== "undefined" && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2) : 1;
+  dpr = 1;
   if (canvas) {
-    canvas.width = Math.round(CANVAS_WIDTH * dpr);
-    canvas.height = Math.round(CANVAS_HEIGHT * dpr);
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
   }
   if (ctx) {
-    ctx.imageSmoothingEnabled = true;
-    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingEnabled = false;
+    if ("webkitImageSmoothingEnabled" in ctx) ctx.webkitImageSmoothingEnabled = false;
+    if ("mozImageSmoothingEnabled" in ctx) ctx.mozImageSmoothingEnabled = false;
+    if ("msImageSmoothingEnabled" in ctx) ctx.msImageSmoothingEnabled = false;
   }
 }
 updateCanvasResolution();
@@ -1832,7 +1870,9 @@ const STATE = {
   TOWN_MAP: "TOWN_MAP",
   CAMPING: "CAMPING",
   LEVEL_UP_MODAL: "LEVEL_UP_MODAL",
-  GAME_COMPLETE: "GAME_COMPLETE"
+  GAME_COMPLETE: "GAME_COMPLETE",
+  PARTNER_CARE: "PARTNER_CARE",
+  WAGON_TRAVEL: "WAGON_TRAVEL"
 };
 
 let gameState = STATE.TITLE; // landing page first
@@ -1857,6 +1897,9 @@ const player = {
   hasBicycle: false,
   isBiking: false,
   hasOldRod: false,
+  hasSurfboard: false,
+  hasPruningShears: true,
+  teaBuffSteps: 0,
   hasTownMap: true,
   hasExpShare: true,
   expShareActive: true,
@@ -1976,6 +2019,573 @@ document.querySelectorAll(".touch-btn").forEach(el => {
   el.addEventListener("pointercancel", handleUp);
 });
 
+function startFishing() {
+  if (!player.hasOldRod) {
+    dialogue.speaker = "FISHING";
+    dialogue.queue = ["A fishing rod would let you hook wild water Pokémon here!"];
+    setDialogueText(dialogue.queue[0]);
+    gameState = STATE.DIALOGUE;
+    dialogue.anim = 0;
+    sfx.textBlip();
+    return;
+  }
+  sfx.fishingBite();
+  showMapBanner("OH! A BITE!");
+  setTimeout(() => {
+    const waterMons = [
+      { id: 129, name: "MAGIKARP", level: 5 + Math.floor(Math.random() * 5), hp: 20, maxHp: 20, moves: [{ name: "SPLASH", power: 0, maxPp: 40, pp: 40 }] },
+      { id: 60, name: "POLIWAG", level: 8 + Math.floor(Math.random() * 5), hp: 25, maxHp: 25, moves: [{ name: "BUBBLE", power: 40, maxPp: 30, pp: 30 }] },
+      { id: 90, name: "SHELLDER", level: 9 + Math.floor(Math.random() * 5), hp: 26, maxHp: 26, moves: [{ name: "TACKLE", power: 40, maxPp: 35, pp: 35 }] }
+    ];
+    const picked = waterMons[Math.floor(Math.random() * waterMons.length)];
+    const chosen = SPECIES_DB[picked.id] ? JSON.parse(JSON.stringify(SPECIES_DB[picked.id])) : picked;
+    chosen.level = picked.level;
+    chosen.maxHp = picked.maxHp;
+    chosen.hp = picked.hp;
+    chosen.moves = picked.moves;
+    battle.enemy = chosen;
+    startBattleTransition();
+  }, 400);
+}
+
+function handleFishingInput(key) {}
+function handleTownMapInput(key) {}
+function closeLevelUpModal() { gameState = STATE.OVERWORLD; }
+function openTownMap(returnState) { showMapBanner("TOWN MAP: PALLET • VIRIDIAN • PEWTER • CERULEAN • VERMILION"); sfx.textBlip(); }
+
+// =============================================================================
+// CAMPING & COOKING SYSTEM
+// =============================================================================
+const campingState = {
+  index: 0,
+  message: "The warm campfire crackles gently...",
+  returnState: STATE.OVERWORLD
+};
+
+function openCampsite(returnState = STATE.OVERWORLD) {
+  campingState.index = 0;
+  campingState.message = "The warm campfire crackles gently...";
+  campingState.returnState = returnState;
+  gameState = STATE.CAMPING;
+  sfx.textBlip();
+}
+
+function handleCampingInput(key) {
+  const optionsCount = 4;
+  if (key === "ArrowUp" || key === "w" || key === "W") {
+    campingState.index = (campingState.index - 1 + optionsCount) % optionsCount;
+    sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s" || key === "S") {
+    campingState.index = (campingState.index + 1) % optionsCount;
+    sfx.textBlip();
+  } else if (key === "z" || key === "Z" || key === "Enter" || key === " ") {
+    if (campingState.index === 0) {
+      if ((player.berries || 0) >= 1) {
+        player.berries--;
+        player.teaBuffSteps = 350;
+        campingState.message = "Brewed fragrant Berry Tea! +25% EXP & Swift Steps for 350 steps!";
+        showMapBanner("🍵 WARM TEA BUFF: +25% EXP & SWIFT STEPS!");
+        sfx.potionUse && sfx.potionUse();
+        sfx.levelUp && sfx.levelUp();
+      } else {
+        campingState.message = "You need at least 1 Berry to brew warm tea! Pick berries from trees & grass.";
+        sfx.faint && sfx.faint();
+      }
+    } else if (campingState.index === 1) {
+      if ((player.berries || 0) >= 2) {
+        player.berries -= 2;
+        (player.team || []).forEach(p => {
+          p.hp = p.maxHp;
+          p.status = null;
+          (p.moves || []).forEach(m => { if (m.maxPp) m.pp = m.maxPp; });
+          p.happy = Math.min(100, (p.happy || 50) + 15);
+        });
+        campingState.message = "Simmered a delicious Hearty Stew! Full party HP, PP restored & status cured!";
+        showMapBanner("🍲 HEARTY STEW: TEAM FULLY HEALED & RESTORED!");
+        sfx.potionUse && sfx.potionUse();
+        sfx.badgeFanfare && sfx.badgeFanfare();
+      } else {
+        campingState.message = "You need at least 2 Berries to simmer hearty stew!";
+        sfx.faint && sfx.faint();
+      }
+    } else if (campingState.index === 2) {
+      (player.team || []).forEach(p => {
+        p.hp = p.maxHp;
+        p.status = null;
+        (p.moves || []).forEach(m => { if (m.maxPp) m.pp = m.maxPp; });
+      });
+      campingState.message = "You and your Pokémon rested by the campfire. Team HP fully restored!";
+      showMapBanner("🥪 CAMP REST: PARTY RESTORED!");
+      sfx.potionUse && sfx.potionUse();
+    } else if (campingState.index === 3) {
+      gameState = campingState.returnState || STATE.OVERWORLD;
+      sfx.textBlip();
+    }
+  } else if (key === "x" || key === "X" || key === "Escape") {
+    gameState = campingState.returnState || STATE.OVERWORLD;
+    sfx.textBlip();
+  }
+}
+
+function renderCamping() {
+  renderOverworld();
+  ctx.fillStyle = "rgba(18, 12, 22, 0.78)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mx = 80, my = 40, mw = 560, mh = 400;
+  ctx.fillStyle = "#261a24";
+  ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+  ctx.fillStyle = "#3a2536";
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 3.5;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  const fx = mx + 90, fy = my + 130;
+  ctx.fillStyle = "#4a2c18";
+  ctx.fillRect(fx - 24, fy + 14, 48, 10);
+  ctx.fillStyle = "#633c22";
+  ctx.fillRect(fx - 18, fy + 8, 36, 8);
+  const flameH = 26 + Math.sin(T * 0.15) * 6;
+  const flameW = 18 + Math.cos(T * 0.12) * 4;
+  ctx.fillStyle = "#d84524";
+  ctx.beginPath();
+  ctx.ellipse(fx, fy + 4, flameW, flameH, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f89524";
+  ctx.beginPath();
+  ctx.ellipse(fx, fy + 8, flameW * 0.7, flameH * 0.75, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffeb60";
+  ctx.beginPath();
+  ctx.ellipse(fx, fy + 12, flameW * 0.4, flameH * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1e1620";
+  ctx.fillRect(fx - 14, fy - 22, 28, 18);
+  ctx.fillStyle = "#3c2e40";
+  ctx.fillRect(fx - 12, fy - 24, 24, 4);
+  ctx.fillStyle = "rgba(255, 240, 220, 0.4)";
+  for (let s = 0; s < 3; s++) {
+    const sy = fy - 30 - ((T * 0.5 + s * 14) % 24);
+    const sx = fx + Math.sin(T * 0.1 + s * 2) * 6;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3 + s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 22px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillText("🏕️ COZY ADVENTURER'S CAMPSITE 🏕️", mx + mw / 2, my + 34);
+
+  ctx.fillStyle = "#f5d4a6";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillText(`Berries in Bag: 🍓 ${player.berries || 0}    •    Active Tea Buff: ${player.teaBuffSteps > 0 ? player.teaBuffSteps + " STEPS" : "NONE"}`, mx + mw / 2, my + 56);
+
+  const options = [
+    { title: "🍵 BREW BERRY TEA", cost: "Cost: 1 Berry", desc: "+25% EXP in battle & swift steps for 350 steps!" },
+    { title: "🍲 SIMMER HEARTY STEW", cost: "Cost: 2 Berries", desc: "Full team heal, cure status, restore all PP & happiness!" },
+    { title: "🥪 COZY PICNIC REST", cost: "Free", desc: "Rest by the warm crackling campfire to heal HP." },
+    { title: "❌ PACK UP CAMP", cost: "", desc: "Resume your journey across Kanto." }
+  ];
+
+  const ox = mx + 180, oy = my + 78, ow = 350, oh = 52;
+  options.forEach((opt, idx) => {
+    const sel = campingState.index === idx;
+    const itemY = oy + idx * (oh + 10);
+    ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.25)" : "rgba(35, 24, 34, 0.45)";
+    ctx.fillRect(ox, itemY, ow, oh);
+    ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
+    ctx.lineWidth = sel ? 2.5 : 1;
+    ctx.strokeRect(ox, itemY, ow, oh);
+
+    ctx.textAlign = "left";
+    ctx.font = "bold 15px 'Courier New'";
+    ctx.fillStyle = sel ? "#ffe8b0" : "#f5ebd8";
+    ctx.fillText(`${sel ? "▶ " : "  "}${opt.title}`, ox + 10, itemY + 22);
+
+    if (opt.cost) {
+      ctx.textAlign = "right";
+      ctx.fillStyle = sel ? "#ffd54f" : "#caa275";
+      ctx.font = "bold 12px 'Courier New'";
+      ctx.fillText(opt.cost, ox + ow - 12, itemY + 22);
+    }
+
+    ctx.textAlign = "left";
+    ctx.font = "11px 'Courier New'";
+    ctx.fillStyle = sel ? "#e5c5a0" : "#9f8994";
+    ctx.fillText(opt.desc, ox + 22, itemY + 40);
+  });
+
+  ctx.fillStyle = "rgba(25, 16, 24, 0.85)";
+  ctx.fillRect(mx + 14, my + mh - 70, mw - 28, 40);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(mx + 14, my + mh - 70, mw - 28, 40);
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillStyle = "#fffaea";
+  ctx.fillText(campingState.message, mx + mw / 2, my + mh - 45);
+
+  ctx.fillStyle = "#caa275";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("▲/▼: Choose   •   Z/Enter: Cook / Rest   •   X/Esc: Pack Up", mx + mw / 2, my + mh - 12);
+  ctx.textAlign = "left";
+}
+
+// =============================================================================
+// PARTNER CARE MODAL
+// =============================================================================
+const partnerCare = {
+  index: 0,
+  message: "",
+  heartParticles: [],
+  napAnim: 0
+};
+
+function openPartnerCare() {
+  const lead = leadMon();
+  if (!lead) return;
+  partnerCare.index = 0;
+  partnerCare.message = `Spending cozy quality time with ${lead.name}!`;
+  partnerCare.heartParticles = [];
+  partnerCare.napAnim = 0;
+  gameState = STATE.PARTNER_CARE;
+  sfx.textBlip();
+  cryAudio.play(lead.id);
+}
+
+function handlePartnerCareInput(key) {
+  const lead = leadMon();
+  if (!lead) { gameState = STATE.OVERWORLD; return; }
+  const totalOptions = 5;
+
+  if (key === "ArrowUp" || key === "w" || key === "W") {
+    partnerCare.index = (partnerCare.index - 1 + totalOptions) % totalOptions;
+    sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s" || key === "S") {
+    partnerCare.index = (partnerCare.index + 1) % totalOptions;
+    sfx.textBlip();
+  } else if (key === "z" || key === "Z" || key === "Enter" || key === " ") {
+    if (partnerCare.index === 0) {
+      lead.happy = Math.min(100, (lead.happy || 50) + 8);
+      partnerCare.message = `${lead.name} happily leaned into your warm touch! (+8 Friendship)`;
+      cryAudio.play(lead.id);
+      sfx.levelUp && sfx.levelUp();
+      for (let i = 0; i < 8; i++) {
+        partnerCare.heartParticles.push({
+          x: 170 + (Math.random() * 60 - 30),
+          y: 190,
+          vy: 1.5 + Math.random() * 1.5,
+          life: 45
+        });
+      }
+    } else if (partnerCare.index === 1) {
+      if ((player.berries || 0) >= 1) {
+        player.berries--;
+        const healAmt = Math.min(25, lead.maxHp - lead.hp);
+        lead.hp = Math.min(lead.maxHp, lead.hp + 25);
+        lead.happy = Math.min(100, (lead.happy || 50) + 12);
+        partnerCare.message = `Fed a juicy Oran Berry to ${lead.name}! (+${healAmt} HP, +12 Friendship)`;
+        sfx.potionUse && sfx.potionUse();
+        cryAudio.play(lead.id);
+        for (let i = 0; i < 6; i++) {
+          partnerCare.heartParticles.push({
+            x: 170 + (Math.random() * 40 - 20),
+            y: 190,
+            vy: 2,
+            life: 40
+          });
+        }
+      } else {
+        partnerCare.message = "You don't have any Berries! Trim wild trees with Pruning Shears to find some.";
+        sfx.faint && sfx.faint();
+      }
+    } else if (partnerCare.index === 2) {
+      lead.happy = Math.min(100, (lead.happy || 50) + 10);
+      partnerCare.message = `${lead.name} joyfully chased the ball and brought it back! (+10 Friendship)`;
+      sfx.bikeBell && sfx.bikeBell();
+      cryAudio.play(lead.id);
+    } else if (partnerCare.index === 3) {
+      partnerCare.napAnim = 90;
+      (player.team || []).forEach(p => {
+        p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.3));
+      });
+      partnerCare.message = `You and ${lead.name} shared a warm, peaceful nap together...`;
+      sfx.potionUse && sfx.potionUse();
+    } else if (partnerCare.index === 4) {
+      gameState = STATE.OVERWORLD;
+      sfx.textBlip();
+    }
+  } else if (key === "x" || key === "X" || key === "Escape") {
+    gameState = STATE.OVERWORLD;
+    sfx.textBlip();
+  }
+}
+
+function renderPartnerCare() {
+  const lead = leadMon();
+  if (!lead) { gameState = STATE.OVERWORLD; return; }
+
+  renderOverworld();
+  ctx.fillStyle = "rgba(18, 12, 24, 0.82)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mx = 70, my = 35, mw = 580, mh = 410;
+  ctx.fillStyle = "#2a1c2b";
+  ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+  ctx.fillStyle = "#3a243b";
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 3.5;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 22px 'Courier New'";
+  ctx.fillText("💖 PARTNER POKéMON CARE 💖", mx + mw / 2, my + 34);
+
+  const px = mx + 20, py = my + 54, pw = 200, ph = 260;
+  ctx.fillStyle = "rgba(25, 14, 27, 0.7)";
+  ctx.fillRect(px, py, pw, ph);
+  ctx.strokeStyle = "#805878";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(px, py, pw, ph);
+
+  const bob = Math.sin(T * 0.08) * 3;
+  drawGenSprite(lead.name.toLowerCase() + "_front", px + (pw - 96) / 2, py + 16 + bob, 96, 96);
+
+  for (let i = partnerCare.heartParticles.length - 1; i >= 0; i--) {
+    const hp = partnerCare.heartParticles[i];
+    hp.y -= hp.vy;
+    hp.life--;
+    ctx.fillStyle = "#ff6b8b";
+    ctx.font = "16px sans-serif";
+    ctx.fillText("❤️", hp.x, hp.y);
+    if (hp.life <= 0) partnerCare.heartParticles.splice(i, 1);
+  }
+
+  ctx.fillStyle = "#fffaea";
+  ctx.font = "bold 16px 'Courier New'";
+  ctx.fillText(lead.name, px + pw / 2, py + 130);
+
+  ctx.fillStyle = "#ffd54f";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillText(`Lv. ${lead.level}  •  ${lead.type}`, px + pw / 2, py + 150);
+
+  ctx.fillStyle = "#f5ebd8";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText(`HP: ${lead.hp} / ${lead.maxHp}`, px + pw / 2, py + 172);
+  const hpPct = Math.max(0, Math.min(1, lead.hp / lead.maxHp));
+  ctx.fillStyle = "#1e1422";
+  ctx.fillRect(px + 20, py + 180, pw - 40, 8);
+  ctx.fillStyle = hpPct > 0.5 ? "#66bb6a" : hpPct > 0.2 ? "#ffa726" : "#ef5350";
+  ctx.fillRect(px + 20, py + 180, (pw - 40) * hpPct, 8);
+
+  const happyVal = lead.happy || 50;
+  ctx.fillStyle = "#ff94b4";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText(`Friendship: ${happyVal} / 100`, px + pw / 2, py + 210);
+  ctx.fillStyle = "#1e1422";
+  ctx.fillRect(px + 20, py + 218, pw - 40, 8);
+  ctx.fillStyle = "#ff6088";
+  ctx.fillRect(px + 20, py + 218, (pw - 40) * (happyVal / 100), 8);
+
+  const options = [
+    { title: "💖 PET & GROOM", desc: "Pet gently to boost bonding & friendship." },
+    { title: "🍓 FEED BERRY", desc: `Feed an Oran Berry (+25 HP & +12 Friendship). [${player.berries || 0} in bag]` },
+    { title: "🎾 PLAY BALL TOSS", desc: "Toss a play ball to build cheer and trust." },
+    { title: "💤 COZY NAP", desc: "Curl up for a restful nap together." },
+    { title: "❌ RETURN", desc: "Resume your journey across Kanto." }
+  ];
+
+  const ox = mx + 236, oy = my + 54, ow = 324, oh = 46;
+  options.forEach((opt, idx) => {
+    const sel = partnerCare.index === idx;
+    const itemY = oy + idx * (oh + 7);
+    ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.28)" : "rgba(35, 22, 36, 0.45)";
+    ctx.fillRect(ox, itemY, ow, oh);
+    ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
+    ctx.lineWidth = sel ? 2.5 : 1;
+    ctx.strokeRect(ox, itemY, ow, oh);
+
+    ctx.textAlign = "left";
+    ctx.font = "bold 14px 'Courier New'";
+    ctx.fillStyle = sel ? "#ffe8b0" : "#f5ebd8";
+    ctx.fillText(`${sel ? "▶ " : "  "}${opt.title}`, ox + 10, itemY + 20);
+
+    ctx.font = "11px 'Courier New'";
+    ctx.fillStyle = sel ? "#e5c5a0" : "#a894a0";
+    ctx.fillText(opt.desc, ox + 22, itemY + 36);
+  });
+
+  ctx.fillStyle = "rgba(25, 16, 24, 0.85)";
+  ctx.fillRect(mx + 20, my + mh - 76, mw - 40, 40);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(mx + 20, my + mh - 76, mw - 40, 40);
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillStyle = "#fffaea";
+  ctx.fillText(partnerCare.message, mx + mw / 2, my + mh - 51);
+
+  ctx.fillStyle = "#caa275";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("▲/▼: Choose   •   Z/Enter: Care Action   •   X/Esc: Back", mx + mw / 2, my + mh - 16);
+  ctx.textAlign = "left";
+}
+
+// =============================================================================
+// COUNTRYSIDE WAGON TRAVEL (FAST TRAVEL)
+// =============================================================================
+const wagonTravel = {
+  index: 0,
+  currentTown: "PALLET_TOWN",
+  destinations: []
+};
+
+function openWagonTravel(currentTown = currentMapKey) {
+  wagonTravel.currentTown = currentTown;
+  const towns = [
+    { key: "PALLET_TOWN", name: "PALLET TOWN", warpX: 3, warpY: 7, req: true, desc: "Peaceful beginnings & Oak's Lab" },
+    { key: "VIRIDIAN_CITY", name: "VIRIDIAN CITY", warpX: 11, warpY: 7, req: player.visitedCities && player.visitedCities.VIRIDIAN_CITY, desc: "Gateway to Viridian Forest" },
+    { key: "PEWTER_CITY", name: "PEWTER CITY", warpX: 12, warpY: 4, req: player.visitedCities && player.visitedCities.PEWTER_CITY, desc: "Rugged stone city & Brock's Gym" },
+    { key: "CERULEAN_CITY", name: "CERULEAN CITY", warpX: 12, warpY: 7, req: player.visitedCities && player.visitedCities.CERULEAN_CITY, desc: "Flowing canals & Misty's Gym" },
+    { key: "VERMILION_CITY", name: "VERMILION CITY", warpX: 3, warpY: 4, req: player.visitedCities && player.visitedCities.VERMILION_CITY, desc: "Port city & Lt. Surge's Gym" }
+  ];
+  wagonTravel.destinations = towns;
+  wagonTravel.index = 0;
+  gameState = STATE.WAGON_TRAVEL;
+  sfx.textBlip();
+}
+
+function handleWagonTravelInput(key) {
+  const list = wagonTravel.destinations;
+  const total = list.length + 1;
+
+  if (key === "ArrowUp" || key === "w" || key === "W") {
+    wagonTravel.index = (wagonTravel.index - 1 + total) % total;
+    sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s" || key === "S") {
+    wagonTravel.index = (wagonTravel.index + 1) % total;
+    sfx.textBlip();
+  } else if (key === "z" || key === "Z" || key === "Enter" || key === " ") {
+    if (wagonTravel.index === list.length) {
+      gameState = STATE.OVERWORLD;
+      sfx.textBlip();
+      return;
+    }
+    const dest = list[wagonTravel.index];
+    if (!dest.req) {
+      showMapBanner("DESTINATION NOT YET DISCOVERED!");
+      sfx.faint && sfx.faint();
+      return;
+    }
+    currentMapKey = dest.key;
+    currentMap = MAPS[currentMapKey];
+    player.gridX = dest.warpX;
+    player.gridY = dest.warpY;
+    player.x = dest.warpX * TILE_SIZE;
+    player.y = dest.warpY * TILE_SIZE;
+    player.isMoving = false;
+    player.moveProgress = 0;
+    resetFollower();
+    gameState = STATE.OVERWORLD;
+    sfx.bikeBell && sfx.bikeBell();
+    showMapBanner(`ARRIVED IN ${dest.name} VIA STAGECOACH!`);
+    music.play();
+  } else if (key === "x" || key === "X" || key === "Escape") {
+    gameState = STATE.OVERWORLD;
+    sfx.textBlip();
+  }
+}
+
+function renderWagonTravel() {
+  renderOverworld();
+  ctx.fillStyle = "rgba(18, 12, 22, 0.82)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const mx = 90, my = 40, mw = 540, mh = 400;
+  ctx.fillStyle = "#2a1c22";
+  ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+  ctx.fillStyle = "#38242a";
+  ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = "#e8a855";
+  ctx.lineWidth = 3.5;
+  ctx.strokeRect(mx, my, mw, mh);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffcb78";
+  ctx.font = "bold 22px 'Courier New'";
+  ctx.fillText("🐎 COUNTRYSIDE STAGECOACH 🐎", mx + mw / 2, my + 34);
+
+  ctx.fillStyle = "#f5d4a6";
+  ctx.font = "bold 13px 'Courier New'";
+  ctx.fillText("Cozy wagon travel between discovered Kanto towns!", mx + mw / 2, my + 56);
+
+  const list = wagonTravel.destinations;
+  const itemW = mw - 40, itemH = 46;
+  list.forEach((t, i) => {
+    const sel = wagonTravel.index === i;
+    const iy = my + 72 + i * (itemH + 7);
+    ctx.fillStyle = sel ? "rgba(224, 168, 102, 0.28)" : "rgba(30, 18, 24, 0.45)";
+    ctx.fillRect(mx + 20, iy, itemW, itemH);
+    ctx.strokeStyle = sel ? "#ffcb78" : "#604758";
+    ctx.lineWidth = sel ? 2.5 : 1;
+    ctx.strokeRect(mx + 20, iy, itemW, itemH);
+
+    ctx.textAlign = "left";
+    ctx.font = "bold 15px 'Courier New'";
+    ctx.fillStyle = !t.req ? "#7a626a" : sel ? "#ffe8b0" : "#f5ebd8";
+    const prefix = sel ? "▶ " : "  ";
+    ctx.fillText(`${prefix}${t.name}`, mx + 32, iy + 22);
+
+    ctx.textAlign = "right";
+    ctx.font = "bold 12px 'Courier New'";
+    ctx.fillStyle = !t.req ? "#7a626a" : sel ? "#ffd54f" : "#caa275";
+    ctx.fillText(t.req ? "[ VISITED ]" : "[ LOCKED ]", mx + itemW + 8, iy + 22);
+
+    ctx.textAlign = "left";
+    ctx.font = "11px 'Courier New'";
+    ctx.fillStyle = !t.req ? "#5a454d" : sel ? "#e5c5a0" : "#9f8994";
+    ctx.fillText(t.req ? t.desc : "Explore this route on foot to unlock stagecoach stops.", mx + 44, iy + 38);
+  });
+
+  const cancelY = my + 72 + list.length * (itemH + 7);
+  const cancelSel = wagonTravel.index === list.length;
+  ctx.fillStyle = cancelSel ? "rgba(224, 168, 102, 0.28)" : "rgba(30, 18, 24, 0.45)";
+  ctx.fillRect(mx + 20, cancelY, itemW, itemH);
+  ctx.strokeStyle = cancelSel ? "#ffcb78" : "#604758";
+  ctx.lineWidth = cancelSel ? 2.5 : 1;
+  ctx.strokeRect(mx + 20, cancelY, itemW, itemH);
+
+  ctx.textAlign = "left";
+  ctx.font = "bold 15px 'Courier New'";
+  ctx.fillStyle = cancelSel ? "#ffe8b0" : "#f5ebd8";
+  ctx.fillText(`${cancelSel ? "▶ " : "  "}❌ STAY IN CURRENT TOWN`, mx + 32, cancelY + 28);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#caa275";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("▲/▼: Select Town   •   Z/Enter: Ride Stagecoach   •   X/Esc: Back", mx + mw / 2, my + mh - 12);
+  ctx.textAlign = "left";
+}
+
+function makeWagoner(townKey, x, y) {
+  return {
+    name: "WAGONER BARNABY",
+    x, y,
+    palette: { body: "#8d5b4c", hair: "#d4a373" },
+    dialogue: [],
+    getDialogue: () => {
+      openWagonTravel(townKey);
+      return ["Barnaby: Where would you and your partner like the countryside wagon to take you?"];
+    }
+  };
+}
+
 // =============================================================================
 // 8. INPUT CONTROLLER & MENUS
 // =============================================================================
@@ -2024,41 +2634,6 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-function startFishing() {
-  if (!player.hasOldRod) {
-    dialogue.speaker = "FISHING";
-    dialogue.queue = ["A fishing rod would let you hook wild water Pokémon here!"];
-    setDialogueText(dialogue.queue[0]);
-    gameState = STATE.DIALOGUE;
-    dialogue.anim = 0;
-    sfx.textBlip();
-    return;
-  }
-  sfx.fishingBite();
-  showMapBanner("OH! A BITE!");
-  setTimeout(() => {
-    const waterMons = [
-      { id: 129, name: "MAGIKARP", level: 5 + Math.floor(Math.random() * 5), hp: 20, maxHp: 20, moves: [{ name: "SPLASH", power: 0, maxPp: 40, pp: 40 }] },
-      { id: 60, name: "POLIWAG", level: 8 + Math.floor(Math.random() * 5), hp: 25, maxHp: 25, moves: [{ name: "BUBBLE", power: 40, maxPp: 30, pp: 30 }] },
-      { id: 90, name: "SHELLDER", level: 9 + Math.floor(Math.random() * 5), hp: 26, maxHp: 26, moves: [{ name: "TACKLE", power: 40, maxPp: 35, pp: 35 }] }
-    ];
-    const picked = waterMons[Math.floor(Math.random() * waterMons.length)];
-    const chosen = SPECIES_DB[picked.id] ? JSON.parse(JSON.stringify(SPECIES_DB[picked.id])) : picked;
-    chosen.level = picked.level;
-    chosen.maxHp = picked.maxHp;
-    chosen.hp = picked.hp;
-    chosen.moves = picked.moves;
-    battle.enemy = chosen;
-    startBattleTransition();
-  }, 400);
-}
-
-function handleFishingInput(key) {}
-function handleTownMapInput(key) {}
-function handleCampingInput(key) {}
-function closeLevelUpModal() { gameState = STATE.OVERWORLD; }
-function openTownMap(returnState) { showMapBanner("TOWN MAP: PALLET • VIRIDIAN • PEWTER • CERULEAN • VERMILION"); sfx.textBlip(); }
-function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTORED!"); sfx.potionUse(); (player.team || []).forEach(p => { p.hp = p.maxHp; p.status = null; }); }
 
   // EXPANSION STATES INPUT ROUTING
   if (gameState === STATE.FISHING) {
@@ -2073,6 +2648,14 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
     handleCampingInput(e.key);
     return;
   }
+  if (gameState === STATE.PARTNER_CARE) {
+    handlePartnerCareInput(e.key);
+    return;
+  }
+  if (gameState === STATE.WAGON_TRAVEL) {
+    handleWagonTravelInput(e.key);
+    return;
+  }
   if (gameState === STATE.LEVEL_UP_MODAL) {
     if (e.key === "z" || e.key === "Z" || e.key === "Enter" || e.key === " ") {
       closeLevelUpModal();
@@ -2084,7 +2667,7 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
   if (gameState === STATE.TITLE) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      if (hasSave()) continueGame();
+      if (hasAnySave()) continueGame();
       else startGame();
     }
     return;
@@ -2189,6 +2772,16 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
     } else if (e.key === "ArrowDown" || e.key === "s") {
       optionsMenu.index = (optionsMenu.index + 1) % totalOptions;
       sfx.textBlip();
+    } else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
+      if (optionsMenu.index === 4) {
+        currentSaveSlot = currentSaveSlot === 1 ? 3 : currentSaveSlot - 1;
+        sfx.textBlip();
+      }
+    } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
+      if (optionsMenu.index === 4) {
+        currentSaveSlot = currentSaveSlot === 3 ? 1 : currentSaveSlot + 1;
+        sfx.textBlip();
+      }
     } else if (e.key === "z" || e.key === "Enter") {
       if (optionsMenu.index === 0) {
         pokedexMenu.index = 0;
@@ -2211,8 +2804,8 @@ function openCampsite(returnState) { showMapBanner("COZY CAMP: FULL PARTY RESTOR
         gameState = STATE.TRAINER_CARD;
         sfx.doorSound();
       } else if (optionsMenu.index === 4) {
-        // SAVE GAME (MANUAL)
-        saveGameManual();
+        // SAVE GAME (MANUAL) TO CURRENT SLOT
+        saveGameManual(currentSaveSlot);
         optionsMenu.savedNotice = 90;
         sfx.levelUp && sfx.levelUp();
       } else if (optionsMenu.index === 5) {
@@ -2601,7 +3194,11 @@ function blockGrassEntry() {
 function isBlocked(gx, gy) {
   if (gx < 0 || gx >= currentMap.cols || gy < 0 || gy >= currentMap.rows) return true;
   const tile = currentMap.tiles[gy][gx];
-  if (tile === 1 || tile === 3 || tile === 4 || tile === 5 || tile === 8 || tile === 9 ||
+  if (tile === 3) {
+    if (player.hasSurfboard && player.team.length > 0) return false;
+    return true;
+  }
+  if (tile === 1 || tile === 4 || tile === 5 || tile === 8 || tile === 9 ||
       tile === 11 || tile === 14 || tile === 15 || tile === 16 || tile === 17 || tile === 19 || tile === 20) return true;
   if (player.team.length === 0 && (tile === 2 || tile === 10)) return true;
   for (const n of currentMap.npcs) {
@@ -2718,7 +3315,10 @@ function updateOverworld() {
   }
 
   const isRunning = (keys["Shift"] || keys["x"] || keys["X"]) && !photoMode;
-  const spd = player.isBiking ? 12 : (isRunning ? 8 : 4);
+  let spd = player.isBiking ? 12 : (isRunning ? 8 : 4);
+  if ((player.teaBuffSteps || 0) > 0 && !player.isBiking) {
+    spd = isRunning ? 10 : 6;
+  }
 
   // Shiny follower overworld sparkle
   const lead = leadMon();
@@ -2745,6 +3345,7 @@ function updateOverworld() {
       player.moveProgress = 0;
       player.x = tx;
       player.y = ty;
+      if (player.teaBuffSteps > 0) player.teaBuffSteps--;
 
       if (checkWarp(player.gridX, player.gridY)) return;
       if (checkHidden()) return;
@@ -2824,10 +3425,32 @@ function checkNPCInteract() {
     }
   }
 
-  // Outdoor picnic spots open campsite (Recommendation 6)
+  // Outdoor picnic spots open campsite
   if (currentMap.picnic && currentMap.picnic.x === tx && currentMap.picnic.y === ty) { openCampsite(STATE.OVERWORLD); return; }
   if (follower.tx === tx && follower.ty === ty && Math.abs(follower.x - tx * TILE_SIZE) < 2 && Math.abs(follower.y - ty * TILE_SIZE) < 2) {
-    follower.happy = 70; const m = leadMon(); if (m) { m.happy = Math.min(100, (m.happy || 0) + 2); cryAudio.play(m.id); sfx.levelUp(); } return;
+    openPartnerCare();
+    return;
+  }
+
+  // Tree foraging with Pruning Shears
+  if (currentMap.tiles[ty] && currentMap.tiles[ty][tx] === 1 && player.hasPruningShears) {
+    if (!player.treeHarvested) player.treeHarvested = {};
+    const treeKey = `${currentMapKey}_${tx}_${ty}`;
+    if (!player.treeHarvested[treeKey]) {
+      player.treeHarvested[treeKey] = true;
+      player.berries = (player.berries || 0) + 1;
+      sfx.levelUp && sfx.levelUp();
+      showMapBanner("🌿 Used Pruning Shears: Harvested an Oran Berry!");
+      dialogue.speaker = "PRUNING SHEARS";
+      dialogue.queue = [
+        "You used the Pruning Shears to carefully trim the sweet branches.",
+        "Found a fresh, ripe Oran Berry!"
+      ];
+      setDialogueText(dialogue.queue[0]);
+      gameState = STATE.DIALOGUE;
+      dialogue.anim = 0;
+      return;
+    }
   }
   for (const n of currentMap.npcs) {
     if (n.x === tx && n.y === ty) {
@@ -3612,10 +4235,15 @@ function handleExpSkip() {
 function handleVictoryAndExp() {
   sfx.victory();
   if (battle.isTrainerBattle && battle.onWin) { battle.onWin(); battle.onWin = null; }
-  const earnedExp = Math.round((battle.enemy.baseExp || 40) * (battle.enemy.level / 2.5));
+  let earnedExp = Math.round((battle.enemy.baseExp || 40) * (battle.enemy.level / 2.5));
   const prize = battle.isGym ? 1400 : battle.isTrainerBattle ? 350 : 10 + battle.enemy.level * 5;
   player.money += prize;
-  battle.message = `${battle.playerMon.name} gained ${earnedExp} EXP! +$${prize}`;
+  if ((player.teaBuffSteps || 0) > 0) {
+    earnedExp = Math.round(earnedExp * 1.25);
+    battle.message = `[Tea Buff +25%] ${battle.playerMon.name} gained ${earnedExp} EXP! +$${prize}`;
+  } else {
+    battle.message = `${battle.playerMon.name} gained ${earnedExp} EXP! +$${prize}`;
+  }
 
   if (!battle.playerMon || earnedExp <= 0) {
     setTimeout(finishGymBattle, 400);
@@ -3905,6 +4533,17 @@ function _executeEnemyTurn() {
     if (hit.text) battle.message = hit.text;
     if (hit.mult > 1 || hit.crit) battle.animShake = 22;
     battle.flash = 1;
+
+    // Held Berry Auto-Consumption
+    if (battle.playerMon.hp > 0 && battle.playerMon.hp <= battle.playerMon.maxHp * 0.35 && (player.berries || 0) > 0) {
+      player.berries--;
+      const berryHeal = Math.min(15, battle.playerMon.maxHp - battle.playerMon.hp);
+      battle.playerMon.hp += berryHeal;
+      floaters.push({ x: 190, y: 240, text: `+${berryHeal} HP (BERRY)`, life: 60 });
+      spawnParticles("HEAL", 190, 290);
+      sfx.potionUse && sfx.potionUse();
+      battle.message = `${battle.playerMon.name} ate its held Berry to restore HP!`;
+    }
 
     setTimeout(() => {
       if (battle.playerMon.hp <= 0) {
@@ -4245,9 +4884,33 @@ function startGame() {
   sfx.levelUp && sfx.levelUp();
 }
 
-function continueGame() {
+function getActiveSaveSlot() {
+  let bestSlot = 1, latestTime = 0;
+  if (typeof localStorage === "undefined") return 1;
+  for (let s = 1; s <= 3; s++) {
+    try {
+      const raw = localStorage.getItem(getSaveKey(s));
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.savedAt && d.savedAt > latestTime) {
+          latestTime = d.savedAt;
+          bestSlot = s;
+        }
+      }
+    } catch (e) {}
+  }
+  return bestSlot;
+}
+
+function hasAnySave() {
+  return hasSave(1) || hasSave(2) || hasSave(3);
+}
+
+function continueGame(slot) {
   if (gameState !== STATE.TITLE) return;
-  if (loadGame()) {
+  const targetSlot = slot || getActiveSaveSlot();
+  currentSaveSlot = targetSlot;
+  if (loadGame(targetSlot)) {
     document.getElementById("landing").classList.add("hide");
     gameState = STATE.OVERWORLD;
     sfx.init();
@@ -4264,16 +4927,23 @@ const startBtnEl = document.getElementById("start-btn");
 const continueBtnEl = document.getElementById("continue-btn");
 if (startBtnEl) startBtnEl.addEventListener("click", startGame);
 if (continueBtnEl) {
-  continueBtnEl.addEventListener("click", continueGame);
-  if (hasSave()) {
+  continueBtnEl.addEventListener("click", () => continueGame());
+  if (hasAnySave()) {
     continueBtnEl.style.display = "inline-block";
+    const slot = getActiveSaveSlot();
+    const info = getSlotSummary(slot);
+    if (info && info.leadName && info.leadName !== "None") {
+      continueBtnEl.textContent = `CONTINUE (SLOT ${slot}: ${info.leadName} Lv.${info.leadLevel})`;
+    } else {
+      continueBtnEl.textContent = `CONTINUE (SLOT ${slot})`;
+    }
     startBtnEl.textContent = "NEW GAME";
   }
 }
-if (continueBtnEl && hasSave()) {
-  continueBtnEl.focus();
+if (continueBtnEl && hasAnySave()) {
+  if (typeof continueBtnEl.focus === "function") continueBtnEl.focus();
 } else if (startBtnEl) {
-  startBtnEl.focus();
+  if (typeof startBtnEl.focus === "function") startBtnEl.focus();
 }
 
 // =============================================================================
@@ -4281,19 +4951,25 @@ if (continueBtnEl && hasSave()) {
 // =============================================================================
 function drawGenSprite(key, dx, dy, dw, dh, filterSilhouette = false) {
   if (loadedSprites[key]) {
-    ctx.imageSmoothingEnabled = true;
-    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingEnabled = false;
+    if ("webkitImageSmoothingEnabled" in ctx) ctx.webkitImageSmoothingEnabled = false;
+    if ("mozImageSmoothingEnabled" in ctx) ctx.mozImageSmoothingEnabled = false;
+    if ("msImageSmoothingEnabled" in ctx) ctx.msImageSmoothingEnabled = false;
+    const ix = Math.round(dx);
+    const iy = Math.round(dy);
+    const iw = Math.round(dw);
+    const ih = Math.round(dh);
     if (filterSilhouette) {
       ctx.save();
       ctx.filter = "brightness(500%) contrast(200%)";
-      ctx.drawImage(loadedSprites[key], dx, dy, dw, dh);
+      ctx.drawImage(loadedSprites[key], ix, iy, iw, ih);
       ctx.restore();
     } else {
-      ctx.drawImage(loadedSprites[key], dx, dy, dw, dh);
+      ctx.drawImage(loadedSprites[key], ix, iy, iw, ih);
     }
   } else {
     ctx.fillStyle = "#d27344";
-    ctx.fillRect(dx, dy, dw, dh);
+    ctx.fillRect(Math.round(dx), Math.round(dy), Math.round(dw), Math.round(dh));
   }
 }
 
@@ -4846,11 +5522,41 @@ function drawPerson(x, y, body, cap, step, bob, facing, charName = "") {
   const by = y + 18 + bob; // Body / Torso Y
   const py = y + 33;       // Base Y for legs / feet
 
-  // 1. SOFT COZY AMBIENT SHADOW
-  ctx.fillStyle = "rgba(18, 10, 24, 0.28)";
-  ctx.beginPath();
-  ctx.ellipse(cx, y + 43, 13, 4.5, 0, 0, Math.PI * 2);
-  ctx.fill();
+  // 1. SOFT COZY AMBIENT SHADOW OR WOODEN SURFBOARD
+  const onWater = isRed && currentMap && currentMap.tiles[player.gridY] && currentMap.tiles[player.gridY][player.gridX] === 3;
+  if (onWater) {
+    ctx.fillStyle = "#af6f3b";
+    ctx.beginPath();
+    ctx.ellipse(cx, y + 43, 17, 5.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#5a3a1e";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(cx - 10, y + 44, 4, 0, Math.PI);
+    ctx.arc(cx + 10, y + 44, 4, 0, Math.PI);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "rgba(18, 10, 24, 0.28)";
+    ctx.beginPath();
+    ctx.ellipse(cx, y + 43, 13, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Water reflection when near or on water
+  if (currentMap && currentMap.tiles[Math.min(currentMap.rows - 1, player.gridY + 1)] && currentMap.tiles[Math.min(currentMap.rows - 1, player.gridY + 1)][player.gridX] === 3) {
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.translate(cx, y + 52);
+    ctx.scale(1, -0.5);
+    ctx.fillStyle = "#2c5070";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 10, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // 2. BACK LAYER ACCESSORIES (Backpack when facing side, Misty ponytail)
   if (isRed) {
@@ -5116,6 +5822,41 @@ function drawPerson(x, y, body, cap, step, bob, facing, charName = "") {
       ctx.fillStyle = "#1e141c"; ctx.beginPath(); ctx.arc(cx, hy + 5.5, 3.5, Math.PI, 0); ctx.fill();
       ctx.fillStyle = "#d83628"; ctx.fillRect(cx - 3, hy + 5, 6, 1);
     }
+
+    // Seasonal Outfits & Cozy Scarf
+    const sn = curSeason();
+    if (sn === 3) {
+      // Winter: White pom-pom on cap & crimson knit scarf
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(cx, hy - 5.5, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Scarf collar around neck
+      ctx.fillStyle = "#a81e18";
+      ctx.fillRect(torsoX - 1, by - 2, torsoW + 2, 4.5);
+      // Trailing fluttering scarf tail
+      const flutter = Math.sin(T * 0.16) * 3;
+      const tailX = facing === "RIGHT" ? torsoX - 5 : torsoX + torsoW + 1;
+      ctx.fillRect(tailX, by - 1, 4, 8 + flutter);
+      ctx.fillStyle = "#f8f5ee";
+      ctx.fillRect(tailX, by + 5 + flutter, 4, 2);
+    } else if (sn === 2) {
+      // Autumn: Warm amber/mustard knit scarf
+      ctx.fillStyle = "#d48a28";
+      ctx.fillRect(torsoX - 1, by - 2, torsoW + 2, 4);
+      const flutter = Math.sin(T * 0.12) * 2.5;
+      const tailX = facing === "RIGHT" ? torsoX - 4 : torsoX + torsoW + 1;
+      ctx.fillRect(tailX, by - 1, 3.5, 7 + flutter);
+    } else if (sn === 0) {
+      // Spring: Delicate cherry blossom flower pin on cap visor
+      ctx.fillStyle = "#f8a5c2";
+      ctx.beginPath();
+      ctx.arc(cx + (facing === "LEFT" ? -5 : 5), hy - 1, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff59d";
+      ctx.fillRect(cx + (facing === "LEFT" ? -5.5 : 4.5), hy - 1.5, 1, 1);
+    }
   } else if (isMisty) {
     ctx.fillStyle = "#e85c22";
     ctx.fillRect(headX, hy - 2, headW, 7);
@@ -5173,10 +5914,9 @@ let vignetteLayer = null;
 function getVignetteLayer() {
   if (vignetteLayer) return vignetteLayer;
   vignetteLayer = document.createElement("canvas");
-  vignetteLayer.width = Math.round(CANVAS_WIDTH * dpr);
-  vignetteLayer.height = Math.round(CANVAS_HEIGHT * dpr);
+  vignetteLayer.width = CANVAS_WIDTH;
+  vignetteLayer.height = CANVAS_HEIGHT;
   const g = vignetteLayer.getContext("2d");
-  if (typeof g.setTransform === "function") g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const gr = g.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 170, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 430);
   gr.addColorStop(0, "rgba(255, 215, 140, 0.08)");
   gr.addColorStop(0.65, "rgba(180, 100, 60, 0.05)");
@@ -5263,13 +6003,11 @@ function drawMapLayer() {
   let L = mapLayers[currentMapKey];
   if (!L) {
     L = document.createElement("canvas");
-    L.width = Math.round(CANVAS_WIDTH * dpr);
-    L.height = Math.round(CANVAS_HEIGHT * dpr);
+    L.width = CANVAS_WIDTH;
+    L.height = CANVAS_HEIGHT;
     const real = ctx;
     ctx = L.getContext("2d");
-    if (typeof ctx.setTransform === "function") ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingEnabled = false;
     drawMapTiles(0);
     ctx = real;
     mapLayers[currentMapKey] = L;
@@ -5342,16 +6080,43 @@ function drawDayNight() {
   ctx.globalAlpha = 1;
 }
 
-// ---- Save / load (Manual saving only — zero background auto-saving) ----
-const SAVE_KEY = "pokemon_cozy_save_v1";
-function hasSave() {
-  try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+// ---- Save / load (Manual saving across 3 Slots — zero background auto-saving) ----
+let currentSaveSlot = 1;
+function getSaveKey(slot = currentSaveSlot) {
+  return slot === 1 ? "pokemon_cozy_save_v1" : `pokemon_cozy_save_slot_${slot}`;
+}
+function hasSave(slot = currentSaveSlot) {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    return !!localStorage.getItem(getSaveKey(slot));
+  } catch (e) { return false; }
+}
+function getSlotSummary(slot) {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(getSaveKey(slot));
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    const p = d.player || {};
+    const lead = (p.team && p.team[0]) ? p.team[0] : null;
+    const badges = (p.hasBoulderBadge ? 1 : 0) + (p.hasCascadeBadge ? 1 : 0) + (p.hasThunderBadge ? 1 : 0);
+    return {
+      slot,
+      exists: true,
+      leadName: lead ? lead.name : "None",
+      leadLevel: lead ? lead.level : 1,
+      badges,
+      steps: p.steps || 0,
+      map: (d.currentMapKey || "PALLET_TOWN").replace("_", " ")
+    };
+  } catch (e) { return null; }
 }
 function saveGame() {
   // Auto-saving intentionally disabled to honor user preference!
 }
-function saveGameManual() {
+function saveGameManual(slot = currentSaveSlot) {
   try {
+    if (typeof localStorage === "undefined") return false;
     const data = {
       player: {
         x: player.x,
@@ -5374,6 +6139,9 @@ function saveGameManual() {
         hasThunderBadge: player.hasThunderBadge,
         hasBicycle: player.hasBicycle,
         hasOldRod: player.hasOldRod,
+        hasSurfboard: player.hasSurfboard,
+        hasPruningShears: player.hasPruningShears,
+        teaBuffSteps: player.teaBuffSteps,
         steps: player.steps,
         beatBugCatcher: player.beatBugCatcher,
         beat: player.beat,
@@ -5383,8 +6151,8 @@ function saveGameManual() {
       currentMapKey,
       savedAt: Date.now()
     };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    showMapBanner("ADVENTURE SAVED SUCCESSFULLY!");
+    localStorage.setItem(getSaveKey(slot), JSON.stringify(data));
+    showMapBanner(`ADVENTURE SAVED TO SLOT ${slot}!`);
     return true;
   } catch (e) {
     console.error("Save failed:", e);
@@ -5392,9 +6160,10 @@ function saveGameManual() {
   }
 }
 
-function loadGame() {
+function loadGame(slot = currentSaveSlot) {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    if (typeof localStorage === "undefined") return false;
+    const raw = localStorage.getItem(getSaveKey(slot));
     if (!raw) return false;
     const data = JSON.parse(raw);
     if (!data || !data.player) return false;
@@ -5594,8 +6363,32 @@ function ambientTick() {
 }
 function stepSound(tile) {
   if (!sfx.ctx) return;
-  if (tile === 2) sfx.playNoise(0.05, 0.025); else if (tile === 7) sfx.playTone(900, "square", 0.03, 500, 0.02); else sfx.playTone(180, "triangle", 0.04, 120, 0.03);
-  if (++player.steps % 50 === 0) { const m = leadMon(); m.happy = Math.min(100, (m.happy || 0) + 1); }
+  if (tile === 2) {
+    sfx.playNoise(0.045, 0.022);
+  } else if (tile === 12 || tile === 13 || tile === 18) {
+    sfx.playTone(160, "triangle", 0.035, 90, 0.025);
+  } else if (tile === 7 || tile === 8 || tile === 9 || tile === 10) {
+    sfx.playTone(520, "square", 0.025, 320, 0.018);
+  } else if (tile === 3) {
+    sfx.playNoise(0.06, 0.035);
+  } else {
+    sfx.playTone(190, "triangle", 0.04, 130, 0.028);
+  }
+  if (++player.steps % 50 === 0) { const m = leadMon(); if (m) m.happy = Math.min(100, (m.happy || 0) + 1); }
+  if (player.steps % 120 === 0 && player.team && player.team.length > 0) {
+    const partner = player.team[0];
+    if (partner && (partner.happy || 0) >= 40 && Math.random() < 0.45) {
+      const lootTable = [
+        { key: "berries", name: "an Oran Berry 🍓" },
+        { key: "potions", name: "a soothing Potion 🧪" },
+        { key: "pokeBalls", name: "a Pokéball 🔴" }
+      ];
+      const found = lootTable[Math.floor(Math.random() * lootTable.length)];
+      player[found.key] = (player[found.key] || 0) + 1;
+      showMapBanner(`✨ ${partner.name} picked up ${found.name}!`);
+      sfx.badgeFanfare && sfx.badgeFanfare();
+    }
+  }
 }
 
 // ---- Picnic spots ----
@@ -5620,19 +6413,27 @@ function drawPicnic() {
 }
 MAPS.PALLET_TOWN.picnic = { x: 11, y: 4 }; MAPS.VIRIDIAN_CITY.picnic = { x: 3, y: 6 };
 MAPS.VIRIDIAN_FOREST.picnic = { x: 10, y: 6 }; MAPS.PEWTER_CITY.picnic = { x: 3, y: 7 };
+if (MAPS.CERULEAN_CITY) MAPS.CERULEAN_CITY.picnic = { x: 3, y: 4 };
 MAPS.PALLET_TOWN.hidden.push(hid("p4", 6, 6, "berries", 3));
 MAPS.VIRIDIAN_CITY.hidden.push(hid("v4", 9, 5, "berries", 3));
 MAPS.VIRIDIAN_FOREST.hidden.push(hid("f5", 7, 4, "berries", 4));
+
+// Countryside Stagecoach Wagoners (Fast Travel)
+MAPS.PALLET_TOWN.npcs.push(makeWagoner("PALLET_TOWN", 2, 7));
+MAPS.VIRIDIAN_CITY.npcs.push(makeWagoner("VIRIDIAN_CITY", 12, 7));
+MAPS.PEWTER_CITY.npcs.push(makeWagoner("PEWTER_CITY", 13, 4));
+if (MAPS.CERULEAN_CITY) MAPS.CERULEAN_CITY.npcs.push(makeWagoner("CERULEAN_CITY", 13, 7));
+if (MAPS.VERMILION_CITY) MAPS.VERMILION_CITY.npcs.push(makeWagoner("VERMILION_CITY", 2, 4));
 
 // ---- Battle background cache ----
 let battleBg = null;
 function getBattleBg() {
   if (battleBg) return battleBg;
   battleBg = document.createElement("canvas");
-  battleBg.width = Math.round(760 * dpr);
-  battleBg.height = Math.round(520 * dpr);
+  battleBg.width = 760;
+  battleBg.height = 520;
   const g = battleBg.getContext("2d");
-  if (typeof g.setTransform === "function") g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.imageSmoothingEnabled = false;
   g.translate(20, 20);
 
   // 1. Warm twilight / dusk sky gradient
@@ -5895,7 +6696,7 @@ function renderOptionsMenu() {
     { label: "POKéMON PARTY",  status: `[ ${player.team.length} / 6 ]`, desc: "View party and individual stats" },
     { label: "ITEM BAG",       status: `[ ${totalItems} ITEMS ]`, desc: "Use Candies, Stones, Potions & Balls" },
     { label: "TRAINER BADGES", status: `[ ${badgeCount} BADGE${badgeCount === 1 ? "" : "S"} ]`, desc: "View official Gym Badges" },
-    { label: "SAVE GAME",      status: optionsMenu.savedNotice ? "[ SAVED! ]" : "[ MANUAL ]", desc: "Save adventure to local memory" },
+    { label: "SAVE GAME",      status: optionsMenu.savedNotice ? "[ SAVED! ]" : `[ SLOT ${currentSaveSlot} ]`, desc: "◄/►: Switch Slot (1-3) • Z: Save to Slot" },
     { label: "TOUCH CONTROLS", status: showTouchControls ? "[ ON  ]" : "[ OFF ]", desc: "Show / hide on-screen D-Pad" },
     { label: "SETTINGS",       status: "", desc: "Volume, text, weather, season, erase" },
     { label: "CLOSE MENU",     status: "", desc: "Resume game" }
@@ -7070,13 +7871,13 @@ function renderBattle() {
 
   if (!battle.enemyCaptured) {
     if (!battle.enemyFlicker || Math.floor(Date.now() / 60) % 2 === 0) {
-      const ex = 434 + battle.edx + battle.slideIn + 96;
-      const ey = 30 + battle.edy + eb + battle.eFaint * 50 + 96;
+      const ex = Math.round(434 + battle.edx + battle.slideIn + 96);
+      const ey = Math.round(30 + battle.edy + eb + battle.eFaint * 50 + 96);
       ctx.save();
       ctx.globalAlpha = (1 - battle.eFaint) * 0.35;
       ctx.fillStyle = "#1e1424";
       ctx.beginPath();
-      ctx.ellipse(ex, 202, 52 * battle.enemyScale, 16 * battle.enemyScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex, 202, Math.round(52 * battle.enemyScale), Math.round(16 * battle.enemyScale), 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
@@ -7091,7 +7892,8 @@ function renderBattle() {
 
   if (!playerThrowAnim.active) {
     if (!battle.playerFlicker || Math.floor(Date.now() / 60) % 2 === 0) {
-      const px = 94 + battle.pdx - battle.slideIn + 96;
+      const px = Math.round(94 + battle.pdx - battle.slideIn + 96);
+      const py = Math.round(175 + battle.pdy + pb + battle.pFaint * 50);
       ctx.save();
       ctx.globalAlpha = (1 - battle.pFaint) * 0.35;
       ctx.fillStyle = "#1e1424";
@@ -7102,7 +7904,7 @@ function renderBattle() {
 
       ctx.save();
       ctx.globalAlpha = 1 - battle.pFaint;
-      drawGenSprite(battle.playerMon.backSpriteKey, 94 + battle.pdx - battle.slideIn, 175 + battle.pdy + pb + battle.pFaint * 50, 192, 192);
+      drawGenSprite(battle.playerMon.backSpriteKey, px - 96, py, 192, 192);
       ctx.restore();
     }
   } else {
@@ -7486,10 +8288,10 @@ function gameLoop() {
   if (gameState !== STATE.BATTLE && gameState !== STATE.EVOLUTION_SCENE) updateFx();
 
   if (ctx) {
-    ctx.save();
-    if (typeof ctx.setTransform === "function") {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
+    ctx.imageSmoothingEnabled = false;
+    if ("webkitImageSmoothingEnabled" in ctx) ctx.webkitImageSmoothingEnabled = false;
+    if ("mozImageSmoothingEnabled" in ctx) ctx.mozImageSmoothingEnabled = false;
+    if ("msImageSmoothingEnabled" in ctx) ctx.msImageSmoothingEnabled = false;
   }
 
   if (gameState === STATE.OVERWORLD) {
@@ -7529,10 +8331,12 @@ function gameLoop() {
     renderStarterSelect();
   } else if (gameState === STATE.GAME_COMPLETE) {
     renderGameComplete();
-  }
-
-  if (ctx) {
-    ctx.restore();
+  } else if (gameState === STATE.CAMPING) {
+    renderCamping();
+  } else if (gameState === STATE.PARTNER_CARE) {
+    renderPartnerCare();
+  } else if (gameState === STATE.WAGON_TRAVEL) {
+    renderWagonTravel();
   }
 
   requestAnimationFrame(gameLoop);

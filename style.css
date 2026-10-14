@@ -229,8 +229,8 @@ canvas {
   max-width: 720px;
   max-height: 480px;
   aspect-ratio: 720 / 480;
-  image-rendering: auto;
-  image-rendering: -webkit-optimize-contrast;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .instructions {
