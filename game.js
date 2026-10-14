@@ -1335,8 +1335,8 @@ MAPS.CERULEAN_CITY = {
     [0,0,3,3,3,3,3,7,7,3,3,3,3,0,1],
     [1,0,3,3,3,3,3,7,7,3,3,3,3,0,1],
     [1,0,0,0,0,0,0,0,0,0,4,4,0,0,1],
-    [1,2,2,2,12,2,2,0,0,2,4,4,2,2,1],
-    [1,1,1,1,1,1,1,0,0,1,1,1,1,1,1]
+    [1,2,2,2,2,2,2,0,0,0,4,4,2,2,1],
+    [1,1,1,1,1,1,1,0,0,0,0,0,1,1,1]
   ],
   npcs: [
     {
@@ -3913,6 +3913,7 @@ function makeWagoner(townKey, x, y) {
 window.addEventListener("keydown", (e) => {
   sfx.init();
   music.unlock();
+  if (doorTransition.active) return;
   if (e.key === "u" || e.key === "U") music.toggle();
   if ((e.key === "m" || e.key === "M") && gameState === STATE.OVERWORLD) {
     openTownMap(STATE.OVERWORLD);
@@ -4550,11 +4551,176 @@ function isBlocked(gx, gy) {
   return false;
 }
 
+function isIndoorMap(key) {
+  return key === "REDS_HOUSE" || key === "BILLS_COTTAGE" || key === "SS_ANNE" || key === "DAYCARE";
+}
+
+function isDoorWarp(w) {
+  return isIndoorMap(w.targetMap) || isIndoorMap(currentMapKey);
+}
+
+const doorTransition = {
+  active: false,
+  stage: "IDLE", // "OPENING" -> "STEP_IN" -> "IRIS_CLOSE" -> "SWITCH" -> "IRIS_OPEN" -> "STEP_OUT"
+  timer: 0,
+  warp: null,
+  doorGx: 0,
+  doorGy: 0,
+  doorPx: 0,
+  doorPy: 0,
+  doorOpenProgress: 0,
+  stepProgress: 0,
+  irisRadius: 420,
+  maxIrisRadius: 420,
+  isEntering: true
+};
+
+function startDoorTransition(w, gx, gy) {
+  doorTransition.active = true;
+  doorTransition.warp = w;
+  doorTransition.doorGx = gx;
+  doorTransition.doorGy = gy;
+  doorTransition.doorPx = gx * TILE_SIZE;
+  doorTransition.doorPy = gy * TILE_SIZE;
+  doorTransition.isEntering = isIndoorMap(w.targetMap);
+  doorTransition.timer = 0;
+  doorTransition.doorOpenProgress = 0;
+  doorTransition.stepProgress = 0;
+  doorTransition.irisRadius = doorTransition.maxIrisRadius;
+
+  sfx.doorSound && sfx.doorSound();
+
+  if (doorTransition.isEntering) {
+    doorTransition.stage = "OPENING";
+  } else {
+    doorTransition.stage = "IRIS_CLOSE";
+  }
+}
+
+function updateDoorTransition() {
+  if (!doorTransition.active) return;
+  doorTransition.timer++;
+
+  if (doorTransition.stage === "OPENING") {
+    // 12 frames: door slides open & warm golden interior light spills out
+    doorTransition.doorOpenProgress = Math.min(1, doorTransition.timer / 12);
+    if (doorTransition.timer >= 12) {
+      doorTransition.stage = "STEP_IN";
+      doorTransition.timer = 0;
+    }
+  } else if (doorTransition.stage === "STEP_IN") {
+    // 12 frames: player walks smoothly forward into the open doorway
+    doorTransition.stepProgress = Math.min(1, doorTransition.timer / 12);
+    const dir = player.facing;
+    if (dir === "UP") player.y -= 2.2;
+    else if (dir === "DOWN") player.y += 2.2;
+    else if (dir === "LEFT") player.x -= 2.2;
+    else if (dir === "RIGHT") player.x += 2.2;
+    player.isMoving = true;
+    player.moveProgress = (doorTransition.timer % 6) * 8;
+
+    if (doorTransition.timer >= 12) {
+      doorTransition.stage = "IRIS_CLOSE";
+      doorTransition.timer = 0;
+    }
+  } else if (doorTransition.stage === "IRIS_CLOSE") {
+    // 14 frames: circular iris closes into the doorway
+    const prog = Math.min(1, doorTransition.timer / 14);
+    doorTransition.irisRadius = doorTransition.maxIrisRadius * (0.5 + 0.5 * Math.cos(prog * Math.PI));
+    if (doorTransition.timer >= 14) {
+      doorTransition.stage = "SWITCH";
+      doorTransition.timer = 0;
+
+      const w = doorTransition.warp;
+      currentMapKey = w.targetMap;
+      currentMap = MAPS[currentMapKey];
+      player.gridX = w.targetX;
+      player.gridY = w.targetY;
+      player.x = w.targetX * TILE_SIZE;
+      player.y = w.targetY * TILE_SIZE;
+      player.facing = doorTransition.isEntering ? "UP" : "DOWN";
+      player.isMoving = false;
+      player.moveProgress = 0;
+      resetFollower();
+      if (player.visitedCities && player.visitedCities[w.targetMap] !== undefined) {
+        player.visitedCities[w.targetMap] = true;
+      }
+      if (isIndoorMap(w.targetMap)) {
+        if (player.isBiking) player.isBiking = false;
+      }
+      showMapBanner(currentMap.name);
+      music.play();
+      sfx.playTone && sfx.playTone(180, "triangle", 0.04, 100, 0.03);
+
+      doorTransition.stage = "IRIS_OPEN";
+      doorTransition.irisRadius = 0;
+    }
+  } else if (doorTransition.stage === "IRIS_OPEN") {
+    // 14 frames: circular iris blooms open outward into the cozy room
+    const prog = Math.min(1, doorTransition.timer / 14);
+    doorTransition.irisRadius = doorTransition.maxIrisRadius * (0.5 - 0.5 * Math.cos(prog * Math.PI));
+    if (doorTransition.timer >= 14) {
+      doorTransition.irisRadius = doorTransition.maxIrisRadius;
+      doorTransition.stage = "STEP_OUT";
+      doorTransition.timer = 0;
+    }
+  } else if (doorTransition.stage === "STEP_OUT") {
+    // 10 frames: player takes a smooth step forward off the entrance mat into the room
+    doorTransition.stepProgress = Math.min(1, doorTransition.timer / 10);
+    if (doorTransition.isEntering) {
+      player.y -= 1.8;
+      player.isMoving = true;
+      player.moveProgress = (doorTransition.timer % 6) * 8;
+    }
+
+    if (doorTransition.timer >= 10) {
+      if (doorTransition.isEntering && player.facing === "UP") {
+        if (!isBlocked(player.gridX, player.gridY - 1)) {
+          player.gridY -= 1;
+        }
+      }
+      player.x = player.gridX * TILE_SIZE;
+      player.y = player.gridY * TILE_SIZE;
+      player.isMoving = false;
+      player.moveProgress = 0;
+      resetFollower();
+      doorTransition.active = false;
+      doorTransition.stage = "IDLE";
+    }
+  }
+}
+
+function drawDoorTransitionOverlay() {
+  if (!doorTransition.active) return;
+  const cx = (doorTransition.stage === "OPENING" || doorTransition.stage === "STEP_IN" || doorTransition.stage === "IRIS_CLOSE")
+    ? doorTransition.doorPx + 24
+    : player.x + 24;
+  const cy = (doorTransition.stage === "OPENING" || doorTransition.stage === "STEP_IN" || doorTransition.stage === "IRIS_CLOSE")
+    ? doorTransition.doorPy + 24
+    : player.y + 24;
+
+  const r = Math.max(0, doorTransition.irisRadius);
+
+  ctx.save();
+  ctx.fillStyle = "#16101c";
+  ctx.beginPath();
+  ctx.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
+  ctx.fill();
+  ctx.restore();
+}
+
 function checkWarp(gx, gy) {
+  if (doorTransition.active) return true;
   if (!currentMap.warps) return false;
   for (const w of currentMap.warps) {
     if (w.fromX === gx && w.fromY === gy) {
-      sfx.doorSound(); photoMode = false;
+      photoMode = false;
+      if (isDoorWarp(w)) {
+        startDoorTransition(w, gx, gy);
+        return true;
+      }
+      sfx.doorSound();
       currentMapKey = w.targetMap;
       currentMap = MAPS[currentMapKey];
       player.gridX = w.targetX;
@@ -4566,14 +4732,14 @@ function checkWarp(gx, gy) {
       if (player.visitedCities && player.visitedCities[w.targetMap] !== undefined) {
         player.visitedCities[w.targetMap] = true;
       }
-      if (w.targetMap === "REDS_HOUSE" || w.targetMap === "BILLS_COTTAGE" || w.targetMap === "SS_ANNE") {
+      if (isIndoorMap(w.targetMap)) {
         if (player.isBiking) player.isBiking = false;
       }
       resetFollower();
       player.isMoving = false;
       player.moveProgress = 0;
       showMapBanner(currentMap.name);
-      music.play(); // switch to this town's theme
+      music.play();
       return true;
     }
   }
@@ -4629,6 +4795,10 @@ function checkTrainerSightLines() {
 }
 
 function updateOverworld() {
+  if (doorTransition.active) {
+    updateDoorTransition();
+    return;
+  }
   if (trainerAlert.active) {
     if (trainerAlert.timer > 0) {
       trainerAlert.timer--;
@@ -6650,7 +6820,8 @@ function getTypeColor(type) {
 
 // COTTAGE & GYM RENDERER
 function drawCozyCottage(px, py, col, row, isPokeCenter = false) {
-  const isTop = (row === 1);
+  const m = currentMap;
+  const isTop = (row === 1 || row === 7 || (m && m.tiles[row + 1] && (m.tiles[row + 1][col] === 4 || m.tiles[row + 1][col] === 5)));
   const isLeft = (col === 1 || col === 9);
   const isCenter = (col === 2 || col === 10);
   const isRight = (col === 3 || col === 11);
@@ -6691,10 +6862,69 @@ function drawCozyCottage(px, py, col, row, isPokeCenter = false) {
     if (isCenter) {
       const dx = px + 12;
       const dy = py + 6;
-      ctx.fillStyle = "#3d271d";
-      ctx.fillRect(dx - 2, dy - 2, 28, 38);
-      ctx.fillStyle = "#6e442f";
-      ctx.fillRect(dx, dy, 24, 34);
+      const dw = 24, dh = 34;
+
+      // Dark doorway recess
+      ctx.fillStyle = "#1e131b";
+      ctx.fillRect(dx - 2, dy - 2, dw + 4, dh + 4);
+
+      // Warm ambient interior room light glowing from inside
+      const glowGrad = ctx.createLinearGradient(dx, dy, dx, dy + dh);
+      glowGrad.addColorStop(0, "#ffe082");
+      glowGrad.addColorStop(0.5, "#ffb74d");
+      glowGrad.addColorStop(1, "#3e2723");
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(dx, dy, dw, dh);
+
+      // Door opening animation: door slides upward smoothly into the frame!
+      let openOffset = 0;
+      if (doorTransition.active && doorTransition.doorGx === col && doorTransition.doorGy === row) {
+        openOffset = Math.floor(doorTransition.doorOpenProgress * dh);
+
+        // Warm light spill trapezoid onto porch/ground
+        if (openOffset > 4) {
+          ctx.save();
+          ctx.fillStyle = `rgba(255, 224, 130, ${(doorTransition.doorOpenProgress * 0.45).toFixed(2)})`;
+          ctx.beginPath();
+          ctx.moveTo(dx, dy + dh);
+          ctx.lineTo(dx + dw, dy + dh);
+          ctx.lineTo(dx + dw + 18, dy + dh + 20);
+          ctx.lineTo(dx - 18, dy + dh + 20);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      // Wooden door panel
+      if (openOffset < dh) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(dx, dy, dw, dh);
+        ctx.clip();
+
+        const doorY = dy - openOffset;
+        ctx.fillStyle = "#6e442f";
+        ctx.fillRect(dx, doorY, dw, dh);
+        ctx.strokeStyle = "#4a2c1d";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(dx, doorY, dw, dh);
+
+        // Door panels & brass doorknob
+        ctx.fillStyle = "#5a3422";
+        ctx.fillRect(dx + 3, doorY + 4, 8, 11);
+        ctx.fillRect(dx + 13, doorY + 4, 8, 11);
+        ctx.fillRect(dx + 3, doorY + 18, 8, 12);
+        ctx.fillRect(dx + 13, doorY + 18, 8, 12);
+
+        // Brass doorknob
+        ctx.fillStyle = "#fbc02d";
+        ctx.beginPath();
+        ctx.arc(dx + dw - 5, doorY + 18, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
     }
   }
 }
@@ -8184,6 +8414,7 @@ function renderOverworld() {
   ctx.drawImage(getVignetteLayer(), 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   drawDayNight();
   drawWeather();
+  drawDoorTransitionOverlay();
   if (photoFlash > 0) { ctx.fillStyle = `rgba(255,255,255,${(photoFlash * 0.7).toFixed(2)})`; ctx.fillRect(0, 0, 720, 480); photoFlash *= 0.88; if (photoFlash < 0.02) photoFlash = 0; }
 
   if (banner.alpha > 0.01) {
