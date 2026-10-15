@@ -860,6 +860,17 @@ function calcDamage(move, attacker, defender) {
     abilityText += ` ${attacker.name} was paralyzed by Static!`;
   }
 
+  // Weather effects in battle (Rain boosts Water, dampens Fire)
+  if (typeof weather !== "undefined" && weather.rain > 0.2) {
+    if (move.type === "WATER" || (attacker.type === "WATER" && move.kind === "special")) {
+      dmg = Math.round(dmg * 1.2);
+      abilityText += " [Rain boost! 💧]";
+    } else if (move.type === "FIRE" || (attacker.type === "FIRE" && move.kind === "special")) {
+      dmg = Math.max(1, Math.round(dmg * 0.8));
+      abilityText += " [Rain dampened!]";
+    }
+  }
+
   const crit = mult > 0 && Math.random() < 0.0625; if (crit) dmg = Math.round(dmg * 1.5);
   if (mult > 0) dmg = Math.max(1, dmg);
   let text = "";
@@ -952,6 +963,7 @@ const MAPS = {
     name: "PALLET TOWN",
     cols: 15,
     rows: 10,
+    noticeBoard: { x: 8, y: 3 },
     tiles: [
       [1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1],
       [1, 4, 4, 4, 1, 0, 0, 0, 1, 4, 4, 4, 1, 1, 1],
@@ -1148,6 +1160,7 @@ const MAPS = {
     name: "PEWTER CITY",
     cols: 15,
     rows: 10,
+    noticeBoard: { x: 7, y: 6 },
     tiles: [
       [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
       [1, 8, 8, 8, 1, 7, 7, 7, 1, 5, 5, 5, 1, 1, 1],
@@ -1326,6 +1339,7 @@ MAPS.MT_MOON = { name: "MT. MOON", cols: 15, rows: 10,
 
 MAPS.CERULEAN_CITY = {
   name: "CERULEAN CITY", cols: 15, rows: 10,
+  noticeBoard: { x: 5, y: 3 },
   tiles: [
     [1,1,1,1,1,1,0,0,1,1,1,1,1,1,1],
     [1,1,4,4,1,1,0,0,1,8,8,8,1,1,1],
@@ -1584,6 +1598,7 @@ MAPS.BILLS_COTTAGE = {
 // VERMILION CITY
 MAPS.VERMILION_CITY = {
   name: "VERMILION CITY", cols: 15, rows: 10,
+  noticeBoard: { x: 5, y: 3 },
   tiles: [
     [1,1,1,1,1,1,1,0,0,1,1,1,1,1,1],
     [1,1,4,4,1,1,7,7,7,1,8,8,8,1,1],
@@ -2002,7 +2017,9 @@ const STATE = {
   NICKNAME: "NICKNAME",
   MOVE_RELEARNER: "MOVE_RELEARNER",
   JUKEBOX: "JUKEBOX",
-  EGG_HATCH: "EGG_HATCH"
+  EGG_HATCH: "EGG_HATCH",
+  NOTICE_BOARD: "NOTICE_BOARD",
+  QUEST_JOURNAL: "QUEST_JOURNAL"
 };
 
 let gameState = STATE.TITLE; // landing page first
@@ -2056,7 +2073,11 @@ const player = {
   egg: null,
   pc: [],
   beat: {},
-  storyFlags: { started: false, starterChosen: false }
+  storyFlags: { started: false, starterChosen: false },
+  quests: { active: [], completed: [] },
+  stewCooked: false,
+  fishCaught: 0,
+  eggsHatchedCount: 0
 };
 
 let showTouchControls = true;
@@ -2442,6 +2463,7 @@ function handleFishingInput(key) {
       fishingGame.stage = "HOOKED";
       player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
       player.stats.fished = (player.stats.fished || 0) + 1;
+      player.fishCaught = (player.fishCaught || 0) + 1;
       sfx.badgeFanfare && sfx.badgeFanfare();
       setTimeout(() => {
         let waterPool = [];
@@ -2679,6 +2701,598 @@ function drawSoilPatches() {
       ctx.fillText("✦", px + 14, py + 10);
     }
   }
+}
+
+// =============================================================================
+// TOWN NOTICE BOARD & COZY COMMUNITY QUESTS
+// =============================================================================
+const TOWN_QUESTS = {
+  PALLET_TOWN: [
+    {
+      id: "Q_BERRIES",
+      title: "Grandma's Sweet Jam",
+      town: "Pallet Town",
+      desc: "Old Grandma in Pallet is simmering sweet berry jam for the town. Harvest 3 fresh Oran Berries from your garden loamy soil or trees!",
+      req: "Gather 3 Oran Berries",
+      rewardDesc: "$600 PokéCoins + 2 Super Potions",
+      checkProgress: () => ({ cur: player.berries || 0, max: 3, ready: (player.berries || 0) >= 3 }),
+      claimReward: () => {
+        player.berries = Math.max(0, (player.berries || 0) - 3);
+        player.money = (player.money || 0) + 600;
+        player.potions = (player.potions || 0) + 2;
+      }
+    }
+  ],
+  PEWTER_CITY: [
+    {
+      id: "Q_MUSEUM_FLORA",
+      title: "Botanical Research",
+      town: "Pewter City",
+      desc: "The Pewter Museum researcher is archiving regional flora. Show a Grass-type Pokémon in your party (Oddish, Bellsprout, or Bulbasaur)!",
+      req: "Have a Grass-type Pokémon in party",
+      rewardDesc: "$800 PokéCoins + 1 Moon Stone",
+      checkProgress: () => {
+        const ok = (player.team || []).some(m => m.type === "GRASS" || m.name === "ODDISH" || m.name === "BULBASAUR" || m.name === "IVYSAUR" || m.name === "BELLSPROUT");
+        return { cur: ok ? 1 : 0, max: 1, ready: ok };
+      },
+      claimReward: () => {
+        player.money = (player.money || 0) + 800;
+        player.moonStones = (player.moonStones || 0) + 1;
+      }
+    },
+    {
+      id: "Q_GOURMET_CAMP",
+      title: "Campfire Gourmet",
+      town: "Pewter City",
+      desc: "Route 3 travelers love warm, wholesome food! Cook a bowl of Hearty Stew at any campsite picnic spot campfire.",
+      req: "Cook Hearty Stew at a Campsite",
+      rewardDesc: "$1,200 PokéCoins + Camp Chef Ribbon",
+      checkProgress: () => ({ cur: player.stewCooked ? 1 : 0, max: 1, ready: !!player.stewCooked }),
+      claimReward: () => {
+        player.money = (player.money || 0) + 1200;
+        if (!player.ribbons) player.ribbons = [];
+        if (!player.ribbons.includes("CAMP_CHEF")) player.ribbons.push("CAMP_CHEF");
+      }
+    }
+  ],
+  CERULEAN_CITY: [
+    {
+      id: "Q_ANGLER",
+      title: "Cerulean Angler's Challenge",
+      town: "Cerulean City",
+      desc: "The Cerulean Angler Guild wants to see an accomplished fisherman. Reel in a Pokémon using the Good Rod or Old Rod!",
+      req: "Catch a Pokémon via Fishing",
+      rewardDesc: "$1,000 PokéCoins + 1 Water Stone",
+      checkProgress: () => ({ cur: Math.min(1, player.fishCaught || 0), max: 1, ready: (player.fishCaught || 0) >= 1 }),
+      claimReward: () => {
+        player.money = (player.money || 0) + 1000;
+        player.waterStones = (player.waterStones || 0) + 1;
+      }
+    },
+    {
+      id: "Q_DAYCARE_EGG",
+      title: "Daycare Egg Whisperer",
+      town: "Cerulean City",
+      desc: "Daycare Grandpa on Route 5 discovered a Pokémon egg! Carry an egg in your party and walk across Kanto until it hatches.",
+      req: "Hatch a Pokémon Egg",
+      rewardDesc: "$1,500 PokéCoins + Egg Master Ribbon",
+      checkProgress: () => ({ cur: Math.min(1, player.eggsHatchedCount || 0), max: 1, ready: (player.eggsHatchedCount || 0) >= 1 }),
+      claimReward: () => {
+        player.money = (player.money || 0) + 1500;
+        if (!player.ribbons) player.ribbons = [];
+        if (!player.ribbons.includes("EGG_MASTER")) player.ribbons.push("EGG_MASTER");
+      }
+    }
+  ],
+  VERMILION_CITY: [
+    {
+      id: "Q_ELECTRIC_SURGE",
+      title: "Harbor Surge Duel",
+      town: "Vermilion City",
+      desc: "Sailors aboard the S.S. Anne want to see a powerful, well-trained Electric-type Pokémon with level 20 or higher.",
+      req: "Train an Electric Pokémon to Lv. 20+",
+      rewardDesc: "$1,200 PokéCoins + 1 Thunder Stone",
+      checkProgress: () => {
+        const ok = (player.team || []).some(m => (m.type === "ELECTRIC" || m.name === "PIKACHU" || m.name === "RAICHU") && m.level >= 20);
+        return { cur: ok ? 1 : 0, max: 1, ready: ok };
+      },
+      claimReward: () => {
+        player.money = (player.money || 0) + 1200;
+        player.thunderStones = (player.thunderStones || 0) + 1;
+      }
+    }
+  ]
+};
+
+function getAllQuests() {
+  const list = [];
+  for (const town in TOWN_QUESTS) {
+    list.push(...TOWN_QUESTS[town]);
+  }
+  return list;
+}
+
+function getActiveQuestCount() {
+  if (!player.quests) player.quests = { active: [], completed: [] };
+  return (player.quests.active || []).length;
+}
+
+const noticeBoardState = {
+  townKey: "PALLET_TOWN",
+  index: 0,
+  returnState: STATE.OVERWORLD,
+  noticeText: ""
+};
+
+const questJournalState = {
+  tab: 0, // 0: Active, 1: Completed, 2: All
+  index: 0,
+  returnState: STATE.OVERWORLD
+};
+
+function openNoticeBoard(townKey = currentMapKey) {
+  noticeBoardState.townKey = townKey;
+  noticeBoardState.index = 0;
+  noticeBoardState.returnState = STATE.OVERWORLD;
+  noticeBoardState.noticeText = "";
+  if (!player.quests) player.quests = { active: [], completed: [] };
+  gameState = STATE.NOTICE_BOARD;
+  sfx.doorSound && sfx.doorSound();
+}
+
+function openQuestJournal(returnState = STATE.OVERWORLD) {
+  questJournalState.tab = 0;
+  questJournalState.index = 0;
+  questJournalState.returnState = returnState;
+  if (!player.quests) player.quests = { active: [], completed: [] };
+  gameState = STATE.QUEST_JOURNAL;
+  sfx.textBlip && sfx.textBlip();
+}
+
+function handleNoticeBoardInput(key) {
+  const quests = TOWN_QUESTS[noticeBoardState.townKey] || [];
+  if (quests.length === 0) {
+    if (key === "x" || key === "Escape" || key === "z" || key === "Enter") {
+      gameState = noticeBoardState.returnState;
+      sfx.textBlip && sfx.textBlip();
+    }
+    return;
+  }
+
+  if (key === "ArrowUp" || key === "w" || key === "W") {
+    noticeBoardState.index = (noticeBoardState.index - 1 + quests.length) % quests.length;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowDown" || key === "s" || key === "S") {
+    noticeBoardState.index = (noticeBoardState.index + 1) % quests.length;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "z" || key === "Enter") {
+    const q = quests[noticeBoardState.index];
+    if (!q) return;
+    if (!player.quests) player.quests = { active: [], completed: [] };
+
+    if (player.quests.completed.includes(q.id)) {
+      noticeBoardState.noticeText = "Already completed this request!";
+      sfx.ballWobble && sfx.ballWobble();
+      return;
+    }
+
+    if (player.quests.active.includes(q.id)) {
+      const prog = q.checkProgress();
+      if (prog.ready) {
+        q.claimReward();
+        player.quests.active = player.quests.active.filter(id => id !== q.id);
+        player.quests.completed.push(q.id);
+        sfx.levelUp && sfx.levelUp();
+        showMapBanner(`★ QUEST COMPLETE: ${q.title}! ★`);
+        noticeBoardState.noticeText = `🎉 Completed & claimed ${q.rewardDesc}!`;
+      } else {
+        noticeBoardState.noticeText = `Progress: [${prog.cur}/${prog.max}]. Keep going!`;
+        sfx.ballWobble && sfx.ballWobble();
+      }
+    } else {
+      player.quests.active.push(q.id);
+      sfx.badgeFanfare && sfx.badgeFanfare();
+      showMapBanner(`ACCEPTED: ${q.title}!`);
+      noticeBoardState.noticeText = "Quest accepted! Track it in your Quest Journal (Q).";
+    }
+  } else if (key === "x" || key === "Escape") {
+    gameState = noticeBoardState.returnState;
+    sfx.textBlip && sfx.textBlip();
+  }
+}
+
+function handleQuestJournalInput(key) {
+  if (!player.quests) player.quests = { active: [], completed: [] };
+  const all = getAllQuests();
+  const activeList = all.filter(q => player.quests.active.includes(q.id));
+  const completedList = all.filter(q => player.quests.completed.includes(q.id));
+
+  let currentList = questJournalState.tab === 0 ? activeList : (questJournalState.tab === 1 ? completedList : all);
+
+  if (key === "ArrowLeft" || key === "a" || key === "A") {
+    questJournalState.tab = (questJournalState.tab - 1 + 3) % 3;
+    questJournalState.index = 0;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowRight" || key === "d" || key === "D") {
+    questJournalState.tab = (questJournalState.tab + 1) % 3;
+    questJournalState.index = 0;
+    sfx.textBlip && sfx.textBlip();
+  } else if (key === "ArrowUp" || key === "w" || key === "W") {
+    if (currentList.length > 0) {
+      questJournalState.index = (questJournalState.index - 1 + currentList.length) % currentList.length;
+      sfx.textBlip && sfx.textBlip();
+    }
+  } else if (key === "ArrowDown" || key === "s" || key === "S") {
+    if (currentList.length > 0) {
+      questJournalState.index = (questJournalState.index + 1) % currentList.length;
+      sfx.textBlip && sfx.textBlip();
+    }
+  } else if (key === "x" || key === "Escape" || key === "q" || key === "Q") {
+    gameState = questJournalState.returnState;
+    sfx.textBlip && sfx.textBlip();
+  }
+}
+
+function drawNoticeBoards() {
+  if (!currentMap || !currentMap.noticeBoard) return;
+  const nb = currentMap.noticeBoard;
+  const px = nb.x * TILE_SIZE;
+  const py = nb.y * TILE_SIZE;
+
+  // Wooden timber posts
+  ctx.fillStyle = "#5c3c26";
+  ctx.fillRect(px + 4, py + 14, 5, 34);
+  ctx.fillRect(px + 39, py + 14, 5, 34);
+
+  // Board frame
+  ctx.fillStyle = "#7c5234";
+  ctx.fillRect(px + 2, py + 2, 44, 28);
+  ctx.strokeStyle = "#4a2d18";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px + 2, py + 2, 44, 28);
+
+  // Corkboard surface
+  ctx.fillStyle = "#b88a58";
+  ctx.fillRect(px + 5, py + 5, 38, 22);
+
+  // Pinned parchment notices
+  ctx.fillStyle = "#fff8e7";
+  ctx.fillRect(px + 8, py + 8, 14, 16);
+  ctx.fillRect(px + 26, py + 8, 14, 16);
+
+  // Gold thumbtacks
+  ctx.fillStyle = "#fbc02d";
+  ctx.beginPath(); ctx.arc(px + 15, py + 9, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(px + 33, py + 9, 2, 0, Math.PI * 2); ctx.fill();
+
+  // Floating prompt when player is adjacent and facing
+  let hx = player.gridX, hy = player.gridY;
+  if (player.facing === "UP") hy--; if (player.facing === "DOWN") hy++;
+  if (player.facing === "LEFT") hx--; if (player.facing === "RIGHT") hx++;
+
+  if (hx === nb.x && hy === nb.y && gameState === STATE.OVERWORLD && !photoMode) {
+    const bob = Math.abs(Math.sin(T * 0.15)) * 4;
+    const by = py - 18 - bob;
+    ctx.save();
+    ctx.fillStyle = "#2c1e28";
+    ctx.fillRect(px - 14, by, 76, 20);
+    ctx.strokeStyle = "#ffcb78";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px - 14, by, 76, 20);
+    ctx.fillStyle = "#fff8e7";
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("📋 Z: NOTICE", px + 24, by + 14);
+    ctx.restore();
+  }
+}
+
+function renderNoticeBoard() {
+  if (noticeBoardState.returnState === STATE.OVERWORLD) renderOverworld();
+  ctx.fillStyle = "rgba(18, 12, 22, 0.72)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const bx = 80, by = 28, bw = 560, bh = 424;
+  // Wooden outer frame
+  ctx.fillStyle = "#3e2723";
+  ctx.fillRect(bx - 6, by - 6, bw + 12, bh + 12);
+  ctx.fillStyle = "#5d4037";
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = "#d4a76a";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(bx, by, bw, bh);
+
+  // Corkboard inner texture
+  ctx.fillStyle = "#c79c6e";
+  ctx.fillRect(bx + 10, by + 10, bw - 20, bh - 20);
+
+  // Header banner
+  const townName = (currentMap.name || "TOWN").toUpperCase();
+  ctx.fillStyle = "#3e2723";
+  ctx.fillRect(bx + 20, by + 16, bw - 40, 44);
+  ctx.strokeStyle = "#ffcb78";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(bx + 20, by + 16, bw - 40, 44);
+
+  ctx.fillStyle = "#ffdf9e";
+  ctx.font = "bold 18px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillText(`❖ ${townName} COMMUNITY NOTICE BOARD ❖`, bx + bw / 2, by + 42);
+  ctx.textAlign = "left";
+
+  const quests = TOWN_QUESTS[noticeBoardState.townKey] || [];
+  if (quests.length === 0) {
+    ctx.fillStyle = "#3e2723";
+    ctx.font = "bold 16px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText("No community jobs posted in this town right now.", bx + bw / 2, by + 220);
+    ctx.font = "14px 'Courier New'";
+    ctx.fillText("Press X to return.", bx + bw / 2, by + 250);
+    ctx.textAlign = "left";
+    return;
+  }
+
+  // Left side: Quest Notices List
+  const listX = bx + 22, listY = by + 68, listW = 230, listH = 300;
+  quests.forEach((q, idx) => {
+    const isSel = noticeBoardState.index === idx;
+    const qy = listY + idx * 72;
+    const isAct = player.quests.active.includes(q.id);
+    const isComp = player.quests.completed.includes(q.id);
+
+    // Parchment paper note
+    ctx.fillStyle = isSel ? "#fffdf5" : "#f5ebd9";
+    ctx.fillRect(listX, qy, listW, 64);
+    ctx.strokeStyle = isSel ? "#e65100" : "#a1887f";
+    ctx.lineWidth = isSel ? 2.5 : 1.5;
+    ctx.strokeRect(listX, qy, listW, 64);
+
+    // Brass pin
+    ctx.fillStyle = "#fbc02d";
+    ctx.beginPath(); ctx.arc(listX + listW / 2, qy + 4, 3, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = "#2c1e28";
+    ctx.font = "bold 13px 'Courier New'";
+    ctx.fillText(`${isSel ? "▶ " : ""}${q.title}`, listX + 12, qy + 24);
+
+    ctx.font = "11px 'Courier New'";
+    ctx.fillStyle = "#5d4037";
+    ctx.fillText(q.town, listX + 14, qy + 40);
+
+    // Status badge
+    if (isComp) {
+      ctx.fillStyle = "#2e7d32";
+      ctx.font = "bold 11px 'Courier New'";
+      ctx.fillText("✓ COMPLETED", listX + 14, qy + 54);
+    } else if (isAct) {
+      const prog = q.checkProgress();
+      ctx.fillStyle = prog.ready ? "#e65100" : "#0277bd";
+      ctx.font = "bold 11px 'Courier New'";
+      ctx.fillText(prog.ready ? "★ READY TO CLAIM!" : `[${prog.cur}/${prog.max}] IN PROGRESS`, listX + 14, qy + 54);
+    } else {
+      ctx.fillStyle = "#795548";
+      ctx.font = "bold 11px 'Courier New'";
+      ctx.fillText("OPEN REQUEST", listX + 14, qy + 54);
+    }
+  });
+
+  // Right side: Quest Detail Card
+  const selQ = quests[noticeBoardState.index];
+  if (selQ) {
+    const cardX = bx + 266, cardY = by + 68, cardW = 270, cardH = 300;
+    ctx.fillStyle = "#fffcf0";
+    ctx.fillRect(cardX, cardY, cardW, cardH);
+    ctx.strokeStyle = "#8d6e63";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cardX, cardY, cardW, cardH);
+
+    ctx.fillStyle = "#bf360c";
+    ctx.font = "bold 15px 'Courier New'";
+    ctx.fillText(selQ.title, cardX + 14, cardY + 28);
+
+    ctx.fillStyle = "#4e342e";
+    ctx.font = "12px 'Courier New'";
+    // Wrap description
+    const words = selQ.desc.split(" ");
+    let line = "", ly = cardY + 54;
+    for (const w of words) {
+      if ((line + w).length > 28) {
+        ctx.fillText(line, cardX + 14, ly);
+        line = w + " ";
+        ly += 16;
+      } else {
+        line += w + " ";
+      }
+    }
+    if (line) ctx.fillText(line, cardX + 14, ly);
+
+    // Requirement box
+    const reqY = cardY + 145;
+    ctx.fillStyle = "#efebe9";
+    ctx.fillRect(cardX + 12, reqY, cardW - 24, 38);
+    ctx.strokeStyle = "#bcaaa4";
+    ctx.strokeRect(cardX + 12, reqY, cardW - 24, 38);
+    ctx.fillStyle = "#3e2723";
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.fillText("OBJECTIVE:", cardX + 18, reqY + 16);
+    ctx.font = "12px 'Courier New'";
+    ctx.fillText(selQ.req, cardX + 18, reqY + 31);
+
+    // Rewards
+    const rewY = cardY + 195;
+    ctx.fillStyle = "#fff8e1";
+    ctx.fillRect(cardX + 12, rewY, cardW - 24, 38);
+    ctx.strokeStyle = "#ffe082";
+    ctx.strokeRect(cardX + 12, rewY, cardW - 24, 38);
+    ctx.fillStyle = "#f57f17";
+    ctx.font = "bold 11px 'Courier New'";
+    ctx.fillText("REWARD:", cardX + 18, rewY + 16);
+    ctx.font = "12px 'Courier New'";
+    ctx.fillStyle = "#3e2723";
+    ctx.fillText(selQ.rewardDesc, cardX + 18, rewY + 31);
+
+    // Action button
+    const isAct = player.quests.active.includes(selQ.id);
+    const isComp = player.quests.completed.includes(selQ.id);
+    const btnY = cardY + 248;
+
+    if (isComp) {
+      ctx.fillStyle = "#e8f5e9";
+      ctx.fillRect(cardX + 12, btnY, cardW - 24, 38);
+      ctx.strokeStyle = "#81c784";
+      ctx.strokeRect(cardX + 12, btnY, cardW - 24, 38);
+      ctx.fillStyle = "#2e7d32";
+      ctx.font = "bold 13px 'Courier New'";
+      ctx.textAlign = "center";
+      ctx.fillText("✓ JOB COMPLETED", cardX + cardW / 2, btnY + 24);
+      ctx.textAlign = "left";
+    } else if (isAct) {
+      const prog = selQ.checkProgress();
+      ctx.fillStyle = prog.ready ? "#e65100" : "#e0f2f1";
+      ctx.fillRect(cardX + 12, btnY, cardW - 24, 38);
+      ctx.strokeStyle = prog.ready ? "#bf360c" : "#80cbc4";
+      ctx.strokeRect(cardX + 12, btnY, cardW - 24, 38);
+      ctx.fillStyle = prog.ready ? "#ffffff" : "#00695c";
+      ctx.font = "bold 13px 'Courier New'";
+      ctx.textAlign = "center";
+      ctx.fillText(prog.ready ? "★ Z: CLAIM REWARD! ★" : `[${prog.cur}/${prog.max}] IN PROGRESS`, cardX + cardW / 2, btnY + 24);
+      ctx.textAlign = "left";
+    } else {
+      ctx.fillStyle = "#ff6f00";
+      ctx.fillRect(cardX + 12, btnY, cardW - 24, 38);
+      ctx.strokeStyle = "#e65100";
+      ctx.strokeRect(cardX + 12, btnY, cardW - 24, 38);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 13px 'Courier New'";
+      ctx.textAlign = "center";
+      ctx.fillText("Z: ACCEPT QUEST", cardX + cardW / 2, btnY + 24);
+      ctx.textAlign = "left";
+    }
+  }
+
+  // Notice status banner
+  if (noticeBoardState.noticeText) {
+    ctx.fillStyle = "#ffe082";
+    ctx.font = "bold 12px 'Courier New'";
+    ctx.fillText(noticeBoardState.noticeText, bx + 24, by + bh - 32);
+  }
+
+  // Footer instructions
+  ctx.fillStyle = "#4a2d18";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("▲/▼: Select Request • Z/Enter: Accept / Claim • X/Esc: Exit Notice Board", bx + 24, by + bh - 12);
+}
+
+function renderQuestJournal() {
+  if (questJournalState.returnState === STATE.OVERWORLD) renderOverworld();
+  ctx.fillStyle = "rgba(18, 12, 22, 0.76)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  const jx = 70, jy = 24, jw = 580, jh = 432;
+  // Leather binder cover
+  ctx.fillStyle = "#3e2723";
+  ctx.fillRect(jx - 6, jy - 6, jw + 12, jh + 12);
+  ctx.fillStyle = "#4e342e";
+  ctx.fillRect(jx, jy, jw, jh);
+  ctx.strokeStyle = "#ffd54f";
+  ctx.lineWidth = 3.5;
+  ctx.strokeRect(jx, jy, jw, jh);
+
+  // Antique parchment page
+  ctx.fillStyle = "#fffdf0";
+  ctx.fillRect(jx + 12, jy + 12, jw - 24, jh - 24);
+  ctx.strokeStyle = "#d7ccc8";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(jx + 12, jy + 12, jw - 24, jh - 24);
+
+  // Header
+  ctx.fillStyle = "#3e2723";
+  ctx.font = "bold 19px 'Courier New'";
+  ctx.textAlign = "center";
+  ctx.fillText("❖ TRAINER'S QUEST JOURNAL ❖", jx + jw / 2, jy + 38);
+  ctx.textAlign = "left";
+
+  const all = getAllQuests();
+  const activeList = all.filter(q => player.quests.active.includes(q.id));
+  const completedList = all.filter(q => player.quests.completed.includes(q.id));
+  let currentList = questJournalState.tab === 0 ? activeList : (questJournalState.tab === 1 ? completedList : all);
+
+  // 3 Tabs
+  const tabNames = [
+    `ACTIVE (${activeList.length})`,
+    `COMPLETED (${completedList.length})`,
+    `ALL JOBS (${all.length})`
+  ];
+  tabNames.forEach((name, idx) => {
+    const isTab = questJournalState.tab === idx;
+    const tx = jx + 24 + idx * 176;
+    const ty = jy + 52;
+    ctx.fillStyle = isTab ? "#8d6e63" : "#d7ccc8";
+    ctx.fillRect(tx, ty, 166, 26);
+    ctx.fillStyle = isTab ? "#ffffff" : "#4e342e";
+    ctx.font = "bold 12px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText(name, tx + 83, ty + 17);
+  });
+  ctx.textAlign = "left";
+
+  // List of quests in this tab
+  const qStartY = jy + 88;
+  if (currentList.length === 0) {
+    ctx.fillStyle = "#6d4c41";
+    ctx.font = "bold 14px 'Courier New'";
+    ctx.textAlign = "center";
+    ctx.fillText(questJournalState.tab === 0 ? "No active community requests! Check notice boards in towns." : "No completed quests yet.", jx + jw / 2, jy + 220);
+    ctx.textAlign = "left";
+  } else {
+    currentList.forEach((q, idx) => {
+      const isSel = questJournalState.index === idx;
+      const qy = qStartY + idx * 76;
+      if (qy + 68 > jy + jh - 40) return;
+
+      const isAct = player.quests.active.includes(q.id);
+      const isComp = player.quests.completed.includes(q.id);
+
+      ctx.fillStyle = isSel ? "#f5efe6" : "#ffffff";
+      ctx.fillRect(jx + 24, qy, jw - 48, 70);
+      ctx.strokeStyle = isSel ? "#bf360c" : "#e0e0e0";
+      ctx.lineWidth = isSel ? 2 : 1;
+      ctx.strokeRect(jx + 24, qy, jw - 48, 70);
+
+      // Title & Town
+      ctx.fillStyle = isSel ? "#bf360c" : "#212121";
+      ctx.font = "bold 14px 'Courier New'";
+      ctx.fillText(`${isSel ? "▶ " : "  "}${q.title}`, jx + 30, qy + 20);
+
+      ctx.fillStyle = "#616161";
+      ctx.font = "11px 'Courier New'";
+      ctx.fillText(`📍 ${q.town}   •   Req: ${q.req}`, jx + 48, qy + 38);
+
+      // Rewards & progress
+      const prog = q.checkProgress();
+      ctx.fillStyle = "#e65100";
+      ctx.fillText(`💰 Reward: ${q.rewardDesc}`, jx + 48, qy + 56);
+
+      if (isComp) {
+        ctx.fillStyle = "#2e7d32";
+        ctx.font = "bold 12px 'Courier New'";
+        ctx.fillText("✓ COMPLETED", jx + jw - 150, qy + 22);
+      } else if (isAct) {
+        ctx.fillStyle = prog.ready ? "#e65100" : "#0277bd";
+        ctx.font = "bold 12px 'Courier New'";
+        ctx.fillText(prog.ready ? "★ READY TO CLAIM!" : `[${prog.cur}/${prog.max}] IN PROGRESS`, jx + jw - 180, qy + 22);
+      } else {
+        ctx.fillStyle = "#757575";
+        ctx.font = "bold 12px 'Courier New'";
+        ctx.fillText("AVAILABLE", jx + jw - 140, qy + 22);
+      }
+    });
+  }
+
+  // Footer instructions
+  ctx.fillStyle = "#5d4037";
+  ctx.font = "bold 11px 'Courier New'";
+  ctx.fillText("◄/►: Switch Tab • ▲/▼: Scroll Quests • Q/X/Esc: Close Journal", jx + 24, jy + jh - 14);
 }
 
 // =============================================================================
@@ -3288,6 +3902,7 @@ function triggerEggHatch(egg) {
   player.egg = null;
   player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
   player.stats.hatched = (player.stats.hatched || 0) + 1;
+  player.eggsHatchedCount = (player.eggsHatchedCount || 0) + 1;
 
   gameState = STATE.EGG_HATCH;
   sfx.ballWobble && sfx.ballWobble();
@@ -3409,6 +4024,7 @@ function handleCampingInput(key) {
         player.berries -= 2;
         player.stats = player.stats || { cooked: 0, cared: 0, fished: 0, shinies: 0, hatched: 0 };
         player.stats.cooked = (player.stats.cooked || 0) + 1;
+        player.stewCooked = true;
         (player.team || []).forEach(p => {
           p.hp = p.maxHp;
           p.status = null;
@@ -3919,6 +4535,14 @@ window.addEventListener("keydown", (e) => {
     openTownMap(STATE.OVERWORLD);
     return;
   }
+  if ((e.key === "q" || e.key === "Q") && gameState === STATE.OVERWORLD) {
+    openQuestJournal(STATE.OVERWORLD);
+    return;
+  }
+  if ((e.key === "c" || e.key === "C") && gameState === STATE.OVERWORLD && player.team.length > 0) {
+    openPartnerCare();
+    return;
+  }
   if (e.key === "m" || e.key === "M") music.toggle();
   if ((e.key === "n" || e.key === "N") && gameState === STATE.OVERWORLD) {
     seasonOverride = seasonOverride >= 3 ? -1 : seasonOverride + 1;
@@ -4106,9 +4730,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  // OPTIONS MENU (9 Options matching renderOptionsMenu)
+  // OPTIONS MENU (10 Options matching renderOptionsMenu)
   if (gameState === STATE.OPTIONS_MENU) {
-    const totalOptions = 9;
+    const totalOptions = 10;
     if (e.key === "ArrowUp" || e.key === "w") {
       optionsMenu.index = (optionsMenu.index - 1 + totalOptions) % totalOptions;
       sfx.textBlip();
@@ -4116,12 +4740,12 @@ window.addEventListener("keydown", (e) => {
       optionsMenu.index = (optionsMenu.index + 1) % totalOptions;
       sfx.textBlip();
     } else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
-      if (optionsMenu.index === 5) {
+      if (optionsMenu.index === 6) {
         currentSaveSlot = currentSaveSlot === 1 ? 3 : currentSaveSlot - 1;
         sfx.textBlip();
       }
     } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
-      if (optionsMenu.index === 5) {
+      if (optionsMenu.index === 6) {
         currentSaveSlot = currentSaveSlot === 3 ? 1 : currentSaveSlot + 1;
         sfx.textBlip();
       }
@@ -4145,22 +4769,24 @@ window.addEventListener("keydown", (e) => {
       } else if (optionsMenu.index === 3) {
         openTownMap(STATE.OPTIONS_MENU);
       } else if (optionsMenu.index === 4) {
+        openQuestJournal(STATE.OPTIONS_MENU);
+      } else if (optionsMenu.index === 5) {
         gameState = STATE.TRAINER_CARD;
         sfx.doorSound();
-      } else if (optionsMenu.index === 5) {
+      } else if (optionsMenu.index === 6) {
         saveGameManual(currentSaveSlot);
         optionsMenu.savedNotice = 90;
         sfx.levelUp && sfx.levelUp();
-      } else if (optionsMenu.index === 6) {
+      } else if (optionsMenu.index === 7) {
         setJoystickVisibility(!showTouchControls);
         sfx.ballWobble();
-      } else if (optionsMenu.index === 7) {
+      } else if (optionsMenu.index === 8) {
         settingsMenu.index = 0;
         settingsMenu.armed = false;
         settingsMenu.msg = "";
         gameState = STATE.SETTINGS;
         sfx.doorSound();
-      } else if (optionsMenu.index === 8) {
+      } else if (optionsMenu.index === 9) {
         gameState = optionsMenu.returnState;
         sfx.textBlip();
       }
@@ -4168,6 +4794,18 @@ window.addEventListener("keydown", (e) => {
       gameState = optionsMenu.returnState;
       sfx.textBlip();
     }
+    return;
+  }
+
+  // NOTICE BOARD SCREEN
+  if (gameState === STATE.NOTICE_BOARD) {
+    handleNoticeBoardInput(e.key);
+    return;
+  }
+
+  // QUEST JOURNAL SCREEN
+  if (gameState === STATE.QUEST_JOURNAL) {
+    handleQuestJournalInput(e.key);
     return;
   }
 
@@ -4548,6 +5186,7 @@ function isBlocked(gx, gy) {
     if (n.x === gx && n.y === gy) return true;
   }
   if (currentMap.picnic && currentMap.picnic.x === gx && currentMap.picnic.y === gy) return true;
+  if (currentMap.noticeBoard && currentMap.noticeBoard.x === gx && currentMap.noticeBoard.y === gy) return true;
   return false;
 }
 
@@ -4951,7 +5590,13 @@ function checkNPCInteract() {
   // Outdoor picnic spots open campsite
   if (currentMap.picnic && currentMap.picnic.x === tx && currentMap.picnic.y === ty) { openCampsite(STATE.OVERWORLD); return; }
   if (follower.tx === tx && follower.ty === ty && Math.abs(follower.x - tx * TILE_SIZE) < 2 && Math.abs(follower.y - ty * TILE_SIZE) < 2) {
-    openPartnerCare();
+    interactWithFollower();
+    return;
+  }
+
+  // Town Notice Board
+  if (currentMap.noticeBoard && currentMap.noticeBoard.x === tx && currentMap.noticeBoard.y === ty) {
+    openNoticeBoard();
     return;
   }
 
@@ -5687,25 +6332,23 @@ function spawnCombatProjectile(type, fromX, fromY, toX, toY) {
   const dist = Math.max(1, Math.hypot(dx, dy));
 
   if (type === "EMBER") {
-    // Fireball stream arcing from attacker to target
-    for (let i = 0; i < 14; i++) {
-      const prog = i / 14;
+    // Fireball stream arcing from attacker to target + glowing flame flares!
+    for (let i = 0; i < 16; i++) {
+      const prog = i / 16;
       const px = fromX + dx * prog + (Math.random() - 0.5) * 16;
       const py = fromY + dy * prog - Math.sin(prog * Math.PI) * 45 + (Math.random() - 0.5) * 16;
-      const colors = ["#ff3d00", "#ff9100", "#ffd600", "#ffffff"];
       battle.particles.push({
+        type: "EMBER_FLAME",
         x: px,
         y: py,
         vx: (dx / dist) * (4 + Math.random() * 3),
         vy: (dy / dist) * (4 + Math.random() * 3) - 1,
-        life: 18 + Math.floor(Math.random() * 8),
-        size: Math.random() * 6 + 4,
-        color: colors[i % colors.length],
-        grav: 0.08
+        life: 20 + Math.floor(Math.random() * 6),
+        size: Math.random() * 8 + 5
       });
     }
   } else if (type === "WATER") {
-    // Azure high-velocity water jet stream
+    // Azure high-velocity water stream + expanding splash rings!
     for (let i = 0; i < 16; i++) {
       const prog = i / 16;
       const px = fromX + dx * prog + (Math.random() - 0.5) * 12;
@@ -5722,8 +6365,35 @@ function spawnCombatProjectile(type, fromX, fromY, toX, toY) {
         grav: 0.14
       });
     }
+    // Water splash rings on target!
+    for (let r = 0; r < 4; r++) {
+      battle.particles.push({
+        type: "WATER_SPLASH",
+        x: toX + (Math.random() - 0.5) * 20,
+        y: toY + (Math.random() - 0.5) * 20,
+        size: 4,
+        life: 18 + r * 3,
+        growth: 1.5
+      });
+    }
   } else if (type === "LEAF") {
-    // Emerald swirling vortex of leaves
+    // Emerald swirling vortex + spinning leaf scythes cutting across defender!
+    battle.particles.push({
+      type: "LEAF_SCYTHE",
+      x: toX, y: toY,
+      rot: -Math.PI / 4,
+      rotSpd: 0.18,
+      size: 18,
+      life: 20
+    });
+    battle.particles.push({
+      type: "LEAF_SCYTHE",
+      x: toX, y: toY,
+      rot: Math.PI / 4,
+      rotSpd: -0.18,
+      size: 18,
+      life: 20
+    });
     for (let i = 0; i < 14; i++) {
       const prog = i / 14;
       const swirl = Math.sin(prog * Math.PI * 4) * 25;
@@ -5742,22 +6412,37 @@ function spawnCombatProjectile(type, fromX, fromY, toX, toY) {
       });
     }
   } else if (type === "THUNDER") {
-    // Jagged electric bolt arcs
-    const segs = 8;
-    for (let i = 0; i < segs; i++) {
-      const nextProg = (i + 1) / segs;
-      const targetSegX = fromX + dx * nextProg + (i < segs - 1 ? (Math.random() - 0.5) * 40 : 0);
-      const targetSegY = fromY + dy * nextProg + (i < segs - 1 ? (Math.random() - 0.5) * 40 : 0);
-      const colors = ["#ffff00", "#ffea00", "#00e5ff", "#ffffff"];
+    // Jagged electric lightning bolts branching across target!
+    for (let b = 0; b < 3; b++) {
+      const pts = [{ x: fromX, y: fromY }];
+      const segs = 6;
+      for (let s = 1; s < segs; s++) {
+        const prog = s / segs;
+        pts.push({
+          x: fromX + dx * prog + (Math.random() - 0.5) * 45,
+          y: fromY + dy * prog + (Math.random() - 0.5) * 45
+        });
+      }
+      pts.push({ x: toX, y: toY });
       battle.particles.push({
-        x: targetSegX,
-        y: targetSegY,
-        vx: (Math.random() - 0.5) * 6,
-        vy: (Math.random() - 0.5) * 6,
-        life: 14 + Math.floor(Math.random() * 6),
-        size: Math.random() * 6 + 4,
-        color: colors[i % colors.length],
-        grav: 0
+        type: "LIGHTNING",
+        points: pts,
+        life: 14 + b * 2,
+        width: 3.5,
+        color: b === 0 ? "#ffffff" : (b === 1 ? "#00e5ff" : "#ffff00")
+      });
+    }
+    // High-voltage sparks
+    for (let i = 0; i < 8; i++) {
+      battle.particles.push({
+        type: "SPARK",
+        x: toX + (Math.random() - 0.5) * 30,
+        y: toY + (Math.random() - 0.5) * 30,
+        vx: (Math.random() - 0.5) * 7,
+        vy: (Math.random() - 0.5) * 7,
+        life: 14,
+        size: Math.random() * 4 + 2,
+        color: "#ffeb3b"
       });
     }
   } else if (type === "PSYCHIC") {
@@ -5778,18 +6463,40 @@ function spawnCombatProjectile(type, fromX, fromY, toX, toY) {
       });
     }
   } else {
-    // Claw slash / impact sparks
-    for (let i = 0; i < 10; i++) {
-      const prog = (i / 10) - 0.5;
+    // Physical / Normal / Claw: 3 luminous razor-sharp slash beams + star hit sparks!
+    battle.particles.push({
+      type: "SLASH",
+      x1: toX - 35, y1: toY - 35,
+      x2: toX + 35, y2: toY + 35,
+      life: 14,
+      width: 5
+    });
+    battle.particles.push({
+      type: "SLASH",
+      x1: toX - 15, y1: toY - 45,
+      x2: toX + 45, y2: toY + 15,
+      life: 16,
+      width: 4
+    });
+    battle.particles.push({
+      type: "SLASH",
+      x1: toX + 35, y1: toY - 35,
+      x2: toX - 35, y2: toY + 35,
+      life: 18,
+      width: 5
+    });
+
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2;
       battle.particles.push({
-        x: toX + prog * 40,
-        y: toY + prog * 40,
-        vx: (Math.random() - 0.5) * 8,
-        vy: (Math.random() - 0.5) * 8,
+        type: "SPARK",
+        x: toX,
+        y: toY,
+        vx: Math.cos(ang) * (Math.random() * 6 + 2),
+        vy: Math.sin(ang) * (Math.random() * 6 + 2),
         life: 16,
-        size: Math.random() * 6 + 3,
-        color: Math.random() > 0.5 ? "#ffffff" : "#ff5252",
-        grav: 0.15
+        size: Math.random() * 4 + 3,
+        color: Math.random() > 0.4 ? "#ffffff" : "#ff5252"
       });
     }
   }
@@ -6925,6 +7632,50 @@ function drawCozyCottage(px, py, col, row, isPokeCenter = false) {
 
         ctx.restore();
       }
+    } else if (isLeft || isRight) {
+      // Cottage Window on left or right wall
+      const wx = px + (isLeft ? 10 : 14);
+      const wy = py + 8;
+      const ww = 24, wh = 24;
+
+      // Wooden window sill & frame
+      ctx.fillStyle = "#4a2c1d";
+      ctx.fillRect(wx - 2, wy - 2, ww + 4, wh + 4);
+
+      if (nightD > 0.35) {
+        // Glowing golden window at dusk/night with gentle warm flicker
+        const radGrad = ctx.createRadialGradient(wx + ww / 2, wy + wh / 2, 2, wx + ww / 2, wy + wh / 2, 24);
+        radGrad.addColorStop(0, "#fff9c4");
+        radGrad.addColorStop(0.5, "#ffca28");
+        radGrad.addColorStop(1, "rgba(255, 160, 0, 0.35)");
+        ctx.fillStyle = radGrad;
+        ctx.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
+
+        ctx.fillStyle = "#fff59d";
+        ctx.fillRect(wx, wy, ww, wh);
+
+        // Soft ambient warm light cast onto ground
+        ctx.fillStyle = "rgba(255, 213, 79, 0.08)";
+        ctx.beginPath();
+        ctx.ellipse(wx + ww / 2, py + TILE_SIZE + 4, 18, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Daytime: reflective sky blue glass with white glint
+        ctx.fillStyle = "#81d4fa";
+        ctx.fillRect(wx, wy, ww, wh);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+        ctx.beginPath();
+        ctx.moveTo(wx + 4, wy + 2);
+        ctx.lineTo(wx + 10, wy + 2);
+        ctx.lineTo(wx + 2, wy + 14);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Wooden window mullions (cross panes)
+      ctx.fillStyle = "#3e2723";
+      ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh);
+      ctx.fillRect(wx, wy + wh / 2 - 1, ww, 2);
     }
   }
 }
@@ -7723,10 +8474,10 @@ function drawMapLayer() {
 }
 
 // ---- Partner Pokémon that walks behind you ----
-const follower = { x: 5 * TILE_SIZE, y: 6 * TILE_SIZE, tx: 5, ty: 6, flip: false, happy: 0, dir: "D" };
+const follower = { x: 5 * TILE_SIZE, y: 6 * TILE_SIZE, tx: 5, ty: 6, flip: false, happy: 0, dir: "D", emote: null, emoteTimer: 0, lastGiftStep: 0 };
 function leadMon() { return player.team.find(p => p.hp > 0) || player.team[0]; }
 function resetFollower() {
-  follower.x = player.x; follower.y = player.y; follower.tx = player.gridX; follower.ty = player.gridY; follower.happy = 0;
+  follower.x = player.x; follower.y = player.y; follower.tx = player.gridX; follower.ty = player.gridY; follower.happy = 0; follower.emoteTimer = 0;
 }
 function drawFollower() {
   const mon = leadMon(); if (!mon) return;
@@ -7745,13 +8496,154 @@ function drawFollower() {
   if (follower.flip) ctx.scale(-1, 1);
   drawGenSprite(key, -sz / 2, -sz, sz, sz);
   ctx.restore();
-  if (follower.happy > 0) {
-    follower.happy--;
-    ctx.globalAlpha = Math.min(1, follower.happy / 20);
-    ctx.fillStyle = "#ff6f91"; ctx.font = "bold 20px 'Courier New'";
-    ctx.fillText("♥", follower.x + 18, follower.y - 6 - (70 - follower.happy) * 0.35);
-    ctx.globalAlpha = 1;
+
+  // Emote Balloon pop-up above follower
+  if (follower.emoteTimer > 0) {
+    follower.emoteTimer--;
+    const bounce = Math.sin((110 - follower.emoteTimer) * 0.2) * 4;
+    const bx = follower.x + 24;
+    const by = follower.y - 12 - bounce;
+
+    ctx.save();
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#2e1e24";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.rect(bx - 14, by - 14, 28, 22);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(bx - 4, by + 8);
+    ctx.lineTo(bx + 4, by + 8);
+    ctx.lineTo(bx, by + 13);
+    ctx.closePath();
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (follower.emote === "HEART") {
+      ctx.fillStyle = "#e91e63"; ctx.font = "bold 15px 'Courier New'"; ctx.fillText("♥", bx, by - 2);
+    } else if (follower.emote === "MUSIC") {
+      ctx.fillStyle = "#fbc02d"; ctx.font = "bold 15px 'Courier New'"; ctx.fillText("♪", bx, by - 2);
+    } else if (follower.emote === "SPARKLE") {
+      ctx.fillStyle = "#00bcd4"; ctx.font = "bold 14px 'Courier New'"; ctx.fillText("✨", bx, by - 2);
+    } else if (follower.emote === "FIRE") {
+      ctx.fillStyle = "#ff5722"; ctx.font = "bold 14px 'Courier New'"; ctx.fillText("🔥", bx, by - 2);
+    } else if (follower.emote === "QUESTION") {
+      ctx.fillStyle = "#0288d1"; ctx.font = "bold 16px 'Courier New'"; ctx.fillText("?", bx, by - 2);
+    } else if (follower.emote === "GIFT") {
+      ctx.fillStyle = "#4caf50"; ctx.font = "bold 14px 'Courier New'"; ctx.fillText("🌿", bx, by - 2);
+    } else if (follower.emote === "SLEEPY") {
+      ctx.fillStyle = "#5c6bc0"; ctx.font = "bold 11px 'Courier New'"; ctx.fillText("zZZ", bx, by - 2);
+    } else {
+      ctx.fillStyle = "#fbc02d"; ctx.font = "bold 15px 'Courier New'"; ctx.fillText("★", bx, by - 2);
+    }
+    ctx.restore();
   }
+}
+
+function interactWithFollower() {
+  const mon = leadMon();
+  if (!mon) return;
+
+  // Orient follower to face Red
+  if (player.gridX < follower.tx) follower.dir = "L";
+  else if (player.gridX > follower.tx) follower.dir = "R";
+  else if (player.gridY < follower.ty) follower.dir = "U";
+  else follower.dir = "D";
+
+  const hpRatio = (mon.hp || 1) / (mon.maxHp || 1);
+  let emote = "HEART";
+  let dialogues = [];
+
+  if (hpRatio < 0.35) {
+    emote = "SLEEPY";
+    dialogues = [
+      `${mon.name} is looking weary and leaning softly against you...`,
+      "A warm Hearty Stew at camp or a visit to Mom will restore its energy! ♥"
+    ];
+  } else if ((mon.happy || 50) >= 120) {
+    const r = Math.random();
+    if (r < 0.3) {
+      emote = "HEART";
+      dialogues = [
+        `${mon.name} nuzzled gently against your hand with deep affection! ♥`,
+        `It looks up at you with sparkling eyes full of absolute trust!`
+      ];
+    } else if (r < 0.55) {
+      emote = "MUSIC";
+      dialogues = [
+        `${mon.name} is humming a cheerful rhythm, skipping to match your footsteps! ♪`,
+        `It seems overjoyed to be exploring Kanto by your side!`
+      ];
+    } else if (r < 0.8) {
+      emote = "SPARKLE";
+      dialogues = [
+        `${mon.name} bounced excitedly and let out a joyful cry! ✨`,
+        `Its bond with you grows warmer every day.`
+      ];
+    } else {
+      emote = "FIRE";
+      dialogues = [
+        `${mon.name} struck a courageous pose, brimming with spirited determination! 🔥`,
+        `It's ready to face any gym leader or wild challenge with you!`
+      ];
+    }
+  } else {
+    const r = Math.random();
+    if (r < 0.5) {
+      emote = "QUESTION";
+      dialogues = [
+        `${mon.name} tilted its head curiously, sniffing the fresh breeze.`,
+        `It's enjoying the journey and watching every step you take.`
+      ];
+    } else {
+      emote = "STAR";
+      dialogues = [
+        `${mon.name} gave a friendly chirp and brushed softly against your leg. ★`,
+        `It seems calm and happy travelling together.`
+      ];
+    }
+  }
+
+  // 18% chance to discover a gift item (e.g. Oran Berry) if not recent
+  if (!follower.lastGiftStep || (player.steps - follower.lastGiftStep) > 80) {
+    if (Math.random() < 0.22) {
+      follower.lastGiftStep = player.steps;
+      player.berries = (player.berries || 0) + 1;
+      emote = "GIFT";
+      dialogues = [
+        `${mon.name} nudged at something sparkling in the grass...`,
+        `Look! ${mon.name} found a fresh, sweet Oran Berry and proudly gave it to you! 🌿`
+      ];
+      sfx.levelUp && sfx.levelUp();
+    }
+  }
+
+  follower.emote = emote;
+  follower.emoteTimer = 110;
+  follower.happy = 110;
+  mon.happy = Math.min(255, (mon.happy || 50) + 2);
+
+  if (cryAudio && mon.id) {
+    try { cryAudio.play(mon.id); } catch(e){}
+  } else if (sfx.badgeSound) {
+    sfx.badgeSound();
+  }
+
+  dialogues.push("Tip: Press 'C' anytime in the overworld to open Partner Care!");
+
+  dialogue.speaker = `${mon.name} (PARTNER)`;
+  dialogue.queue = dialogues;
+  dialogue.activeCallback = null;
+  setDialogueText(dialogue.queue[0]);
+  gameState = STATE.DIALOGUE;
+  dialogue.anim = 0;
+  sfx.textBlip && sfx.textBlip();
 }
 
 // ---- Day / night cycle (one full day = 6 minutes) ----
@@ -7766,16 +8658,46 @@ function takePhoto() {
 let dayOffset = 3000, nightD = 0, saveFlash = 0;
 function updateClock() { nightD = (1 - Math.cos((((dayOffset + T) / 21600) % 1) * 6.2832)) / 2; }
 function drawDayNight() {
-  const d = nightD, w = Math.min(1, Math.max(0, (d - 0.3) / 0.4));
-  const _sc = SEASON_TINT[curSeason()]; if (_sc && currentMapKey !== "MT_MOON") { ctx.fillStyle = _sc; ctx.fillRect(0, 0, 720, 480); }
+  if (isIndoorMap(currentMapKey)) {
+    // Cozy warm interior room ambient lighting — never dark outdoor night fog indoors!
+    ctx.fillStyle = "rgba(255, 235, 190, 0.04)";
+    ctx.fillRect(0, 0, 720, 480);
+    return;
+  }
+  const d = nightD;
+  const _sc = SEASON_TINT[curSeason()];
+  if (_sc && currentMapKey !== "MT_MOON") { ctx.fillStyle = _sc; ctx.fillRect(0, 0, 720, 480); }
   if (currentMapKey === "MT_MOON") { ctx.fillStyle = "rgba(10,10,45,0.38)"; ctx.fillRect(0, 0, 720, 480); }
-  ctx.fillStyle = `rgba(${Math.round(255 - 237 * w)},${Math.round(150 - 124 * w)},${Math.round(70 + 8 * w)},${(d * 0.5).toFixed(3)})`;
-  ctx.fillRect(0, 0, 720, 480);
+
+  // 4 distinct time-of-day atmospheric color grades
+  if (d < 0.25) {
+    // Crisp clear daylight
+  } else if (d < 0.45) {
+    // Dawn / Morning peach warmth
+    const prog = (d - 0.25) / 0.2;
+    ctx.fillStyle = `rgba(255, 190, 130, ${(prog * 0.14).toFixed(3)})`;
+    ctx.fillRect(0, 0, 720, 480);
+  } else if (d < 0.70) {
+    // Twilight / Sunset amber and magenta glow
+    const prog = (d - 0.45) / 0.25;
+    ctx.fillStyle = `rgba(225, 95, 60, ${(prog * 0.22).toFixed(3)})`;
+    ctx.fillRect(0, 0, 720, 480);
+  } else {
+    // Night: Deep navy moonlight with soft starlight
+    const prog = (d - 0.70) / 0.3;
+    ctx.fillStyle = `rgba(16, 26, 76, ${(0.22 + prog * 0.26).toFixed(3)})`;
+    ctx.fillRect(0, 0, 720, 480);
+  }
+
   if (currentMapKey === "VIRIDIAN_FOREST") { ctx.fillStyle = "rgba(10,30,15,0.2)"; ctx.fillRect(0, 0, 720, 480); }
   if (photoMode) { ctx.globalAlpha = 1; return; }
-  ctx.font = "bold 12px 'Courier New'"; ctx.fillStyle = "#fff3d6"; ctx.globalAlpha = 0.8;
-  ctx.fillText(d < 0.3 ? "☀ DAY" : d < 0.65 ? "✦ TWILIGHT" : "☾ NIGHT", 625, 24);
-  ctx.fillText("$" + player.money, 625, 42); ctx.fillText(SEASON_NAMES[curSeason()], 625, 78);
+
+  // Cozy HUD Time of Day & Currency Badge
+  ctx.font = "bold 12px 'Courier New'"; ctx.fillStyle = "#fff3d6"; ctx.globalAlpha = 0.85;
+  const timeName = d < 0.25 ? "☀ DAY" : d < 0.45 ? "🌅 DAWN" : d < 0.70 ? "🌇 DUSK" : "☾ NIGHT";
+  ctx.fillText(timeName, 620, 24);
+  ctx.fillText("$" + (player.money || 0), 620, 42);
+  ctx.fillText(SEASON_NAMES[curSeason()], 620, 78);
   ctx.globalAlpha = 1;
 }
 
@@ -7852,7 +8774,11 @@ function saveGameManual(slot = currentSaveSlot) {
         beatBugCatcher: player.beatBugCatcher,
         beat: player.beat,
         found: player.found,
-        storyFlags: player.storyFlags
+        storyFlags: player.storyFlags,
+        quests: player.quests,
+        stewCooked: player.stewCooked,
+        fishCaught: player.fishCaught,
+        eggsHatchedCount: player.eggsHatchedCount
       },
       currentMapKey,
       savedAt: Date.now()
@@ -7882,6 +8808,10 @@ function loadGame(slot = currentSaveSlot) {
     player.daycare = player.daycare || { mon: null, hasEgg: false, eggSteps: 0 };
     player.egg = player.egg || null;
     player.hasGoodRod = player.hasGoodRod || false;
+    player.quests = player.quests || { active: [], completed: [] };
+    player.stewCooked = player.stewCooked || false;
+    player.fishCaught = player.fishCaught || 0;
+    player.eggsHatchedCount = player.eggsHatchedCount || 0;
 
     if (data.currentMapKey && MAPS[data.currentMapKey]) {
       currentMapKey = data.currentMapKey;
@@ -8359,6 +9289,7 @@ function renderOverworld() {
   drawHidden();
   drawPicnic();
   drawSoilPatches();
+  drawNoticeBoards();
 
   // NPCs
   let hx = player.gridX, hy = player.gridY;
@@ -8443,7 +9374,7 @@ function renderOptionsMenu() {
   ctx.fillStyle = "rgba(18, 12, 22, 0.75)";
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  const mx = 160, my = 22, mw = 400, mh = 436;
+  const mx = 160, my = 16, mw = 400, mh = 448;
   ctx.fillStyle = "#281e28";
   ctx.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
   ctx.fillStyle = "#3d2e38";
@@ -8454,7 +9385,7 @@ function renderOptionsMenu() {
 
   ctx.fillStyle = "#ffcb78";
   ctx.font = "bold 20px 'Courier New'";
-  ctx.fillText("❖ SETTINGS & BAG ❖", mx + 60, my + 26);
+  ctx.fillText("❖ SETTINGS & BAG ❖", mx + 60, my + 24);
 
   const totalItems = (player.potions || 0) + (player.pokeBalls || 0) + (player.rareCandies || 0) + (player.thunderStones || 0) + (player.moonStones || 0);
   const badgeCount = (player.hasBoulderBadge ? 1 : 0) + (player.hasCascadeBadge ? 1 : 0) + (player.hasThunderBadge ? 1 : 0);
@@ -8466,6 +9397,7 @@ function renderOptionsMenu() {
     { label: "POKéMON PARTY",  status: `[ ${player.team.length} / 6 ]`, desc: "View party and individual stats" },
     { label: "ITEM BAG",       status: `[ ${totalItems} ITEMS ]`, desc: "Use Candies, Stones, Potions & Balls" },
     { label: "TOWN MAP",       status: "[ KANTO ]", desc: "View regional map & exact coordinates (M)" },
+    { label: "QUEST JOURNAL",   status: `[ ${getActiveQuestCount()} ACTIVE ]`, desc: "Track community jobs & rewards (Q)" },
     { label: "TRAINER CARD",   status: `[ ${badgeCount} BADGE${badgeCount === 1 ? "" : "S"} ]`, desc: "Trainer ID, playtime, badges & ribbons" },
     { label: "SAVE GAME",      status: optionsMenu.savedNotice ? "[ SAVED! ]" : `[ SLOT ${currentSaveSlot} ]`, desc: "◄/►: Switch Slot (1-3) • Z: Save to Slot" },
     { label: "TOUCH CONTROLS", status: showTouchControls ? "[ ON  ]" : "[ OFF ]", desc: "Show / hide on-screen D-Pad" },
@@ -8475,20 +9407,20 @@ function renderOptionsMenu() {
 
   items.forEach((item, idx) => {
     const isSelected = optionsMenu.index === idx;
-    const iy = my + 44 + idx * 41;
+    const iy = my + 38 + idx * 38;
 
     ctx.fillStyle = isSelected ? "rgba(224, 168, 102, 0.22)" : "rgba(30, 20, 28, 0.35)";
-    ctx.fillRect(mx + 14, iy - 10, mw - 28, 38);
+    ctx.fillRect(mx + 14, iy - 8, mw - 28, 35);
 
     if (isSelected) {
       ctx.strokeStyle = "#ffcb78";
       ctx.lineWidth = 2;
-      ctx.strokeRect(mx + 14, iy - 10, mw - 28, 38);
+      ctx.strokeRect(mx + 14, iy - 8, mw - 28, 35);
     }
 
-    ctx.font = "bold 14px 'Courier New'";
+    ctx.font = "bold 13px 'Courier New'";
     ctx.fillStyle = isSelected ? "#ffdf9e" : "#f0e6d6";
-    ctx.fillText(`${isSelected ? "▶ " : "  "}${item.label}`, mx + 20, iy + 8);
+    ctx.fillText(`${isSelected ? "▶ " : "  "}${item.label}`, mx + 18, iy + 8);
 
     if (item.status) {
       ctx.fillStyle = item.label === "SAVE GAME" && optionsMenu.savedNotice ? "#81c784" : isSelected ? "#ffeaa8" : "#caa275";
@@ -8497,7 +9429,7 @@ function renderOptionsMenu() {
 
     ctx.font = "10px 'Courier New'";
     ctx.fillStyle = isSelected ? "#e5c5a0" : "#99857d";
-    ctx.fillText(item.desc, mx + 38, iy + 22);
+    ctx.fillText(item.desc, mx + 36, iy + 21);
   });
 
   ctx.fillStyle = "#e0cfb8";
@@ -9722,6 +10654,18 @@ function renderBattle() {
 
   ctx.drawImage(getBattleBg(), -20, -20);
   if (nightD > 0.05) { ctx.fillStyle = `rgba(20,26,78,${(nightD * 0.45).toFixed(2)})`; ctx.fillRect(-20, -20, 760, 380); }
+  if (typeof weather !== "undefined" && weather.rain > 0.2) {
+    ctx.strokeStyle = `rgba(180, 220, 255, ${(weather.rain * 0.35).toFixed(2)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < 30; i++) {
+      const rx = (T * 12 + i * 47) % 760 - 20;
+      const ry = (T * 18 + i * 31) % 360;
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx - 3, ry + 12);
+    }
+    ctx.stroke();
+  }
 
   battle.edx += (battle.enemyOffset.x - battle.edx) * 0.35;
   battle.edy += (battle.enemyOffset.y - battle.edy) * 0.35;
@@ -9780,11 +10724,74 @@ function renderBattle() {
 
   for (let i = battle.particles.length - 1; i >= 0; i--) {
     const p = battle.particles[i];
-    p.x += p.vx; p.y += p.vy;
-    if (p.grav) p.vy += p.grav;
     p.life--;
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    if (p.type === "SLASH") {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life / 10);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = p.width || 4;
+      ctx.beginPath();
+      ctx.moveTo(p.x1, p.y1);
+      ctx.lineTo(p.x2, p.y2);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(180, 220, 255, 0.6)";
+      ctx.lineWidth = (p.width || 4) + 4;
+      ctx.stroke();
+      ctx.restore();
+    } else if (p.type === "LIGHTNING") {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life / 8);
+      ctx.strokeStyle = p.color || "#00e5ff";
+      ctx.lineWidth = p.width || 3.5;
+      ctx.beginPath();
+      for (let j = 0; j < p.points.length; j++) {
+        if (j === 0) ctx.moveTo(p.points[j].x, p.points[j].y);
+        else ctx.lineTo(p.points[j].x, p.points[j].y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    } else if (p.type === "EMBER_FLAME") {
+      p.x += (p.vx || 0); p.y += (p.vy || 0);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life / 14);
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size || 8);
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.3, "#ffeb3b");
+      grad.addColorStop(0.7, "#ff5722");
+      grad.addColorStop(1, "rgba(216, 27, 96, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size || 8, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (p.type === "WATER_SPLASH") {
+      p.size = (p.size || 4) + (p.growth || 1.4);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life / 12);
+      ctx.strokeStyle = "#80d8ff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, p.size, p.size * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    } else if (p.type === "LEAF_SCYTHE") {
+      p.rot = (p.rot || 0) + (p.rotSpd || 0.15);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life / 14);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = "#76ff03";
+      ctx.beginPath(); ctx.ellipse(0, 0, (p.size || 16) * 2, (p.size || 16) * 0.65, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (p.type === "SPARK") {
+      p.x += (p.vx || 0); p.y += (p.vy || 0);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life / 12);
+      ctx.fillStyle = p.color || "#ffeb3b";
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else {
+      p.x += (p.vx || 0); p.y += (p.vy || 0);
+      if (p.grav) p.vy += p.grav;
+      ctx.fillStyle = p.color || "#fff";
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2); ctx.fill();
+    }
     if (p.life <= 0) battle.particles.splice(i, 1);
   }
 
@@ -10216,6 +11223,10 @@ function gameLoop() {
     renderJukebox();
   } else if (gameState === STATE.EGG_HATCH) {
     renderEggHatch();
+  } else if (gameState === STATE.NOTICE_BOARD) {
+    renderNoticeBoard();
+  } else if (gameState === STATE.QUEST_JOURNAL) {
+    renderQuestJournal();
   }
 
   requestAnimationFrame(gameLoop);
